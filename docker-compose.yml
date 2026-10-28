@@ -1,0 +1,72 @@
+name: osm-notes
+
+services:
+  db:
+    build: ./images/db
+    image: osm-notes/db:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DBNAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    # Parallel queries during the base load need more than the 64MB default.
+    shm_size: 1g
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${PG_SHARED_BUFFERS:-1GB}
+      - -c
+      - work_mem=64MB
+      - -c
+      - maintenance_work_mem=512MB
+      - -c
+      - max_wal_size=4GB
+    ports:
+      - "127.0.0.1:${DB_PUBLIC_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DBNAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Daemon: on an empty DB it runs processPlanetNotes.sh --base (full history,
+  # takes 1-3 hours), then syncs with the OSM API every DAEMON_SLEEP_INTERVAL seconds.
+  ingestion:
+    build:
+      context: ./images/ingestion
+      args:
+        INGESTION_REPO: ${INGESTION_REPO:-https://github.com/Rub21/OSM-Notes-Ingestion.git}
+        INGESTION_REF: ${INGESTION_REF:-fix/daemon-empty-db}
+    image: osm-notes/ingestion:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DBNAME: ${DBNAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: db
+      DB_PORT: 5432
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DAEMON_SLEEP_INTERVAL: ${DAEMON_SLEEP_INTERVAL:-60}
+      MAX_THREADS: ${MAX_THREADS:-4}
+      CLEAN: "true"
+      SKIP_XML_VALIDATION: "true"
+      SKIP_CSV_VALIDATION: "true"
+      DOWNLOAD_USER_AGENT: ${DOWNLOAD_USER_AGENT}
+      # Used for boundary updates and the startup check (the base load uses the GitHub backup).
+      OVERPASS_INTERPRETER: ${OVERPASS_INTERPRETER:-https://maps.mail.ru/osm/tools/overpass/api/interpreter}
+    volumes:
+      - ingestion_data:/var/lib/osm-notes-ingestion
+      - ingestion_logs:/var/log/osm-notes-ingestion
+      - ingestion_tmp:/var/tmp/osm-notes-ingestion
+
+
+volumes:
+  pgdata:
+  ingestion_data:
+  ingestion_logs:
+  ingestion_tmp:
