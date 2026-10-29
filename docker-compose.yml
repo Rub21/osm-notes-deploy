@@ -25,6 +25,9 @@ services:
       - "127.0.0.1:${DB_PUBLIC_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql
+      # The scripts use server-side COPY FROM on CSVs under TMP_DIR, so Postgres
+      # must see the ingestion temp dir at the same path.
+      - ingestion_tmp:/var/tmp/osm-notes-ingestion:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DBNAME}"]
       interval: 10s
