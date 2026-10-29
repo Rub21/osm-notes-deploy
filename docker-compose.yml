@@ -111,6 +111,18 @@ services:
     ports:
       - "127.0.0.1:${LABELER_PORT:-8090}:8000"
 
+  # Public access to the labeler through a Cloudflare Tunnel (no open ports).
+  # In the Cloudflare dashboard, set the tunnel's public hostname to
+  # http://labeler:8000 and protect it with Cloudflare Access.
+  cloudflared:
+    image: cloudflare/cloudflared:2025.8.1
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - labeler
+
 volumes:
   pgdata:
   ingestion_data:
