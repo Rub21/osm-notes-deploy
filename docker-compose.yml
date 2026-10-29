@@ -91,6 +91,27 @@ services:
       - ./output:/output
       - ./sql:/sql:ro
 
+  # Keeps ml.note_lang up to date: detects the language of new notes
+  # every WATCH_INTERVAL seconds. Same image as the extractor.
+  lang-updater:
+    image: osm-notes/extractor:latest
+    build: ./images/extractor
+    command: ["--watch"]
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGPORT: 5432
+      PGUSER: ${DB_USER}
+      PGPASSWORD: ${DB_PASSWORD}
+      PGDATABASE: ${DBNAME}
+      LABELER_DB_PASSWORD: ${LABELER_DB_PASSWORD}
+      WATCH_INTERVAL: ${LANG_WATCH_INTERVAL:-300}
+    volumes:
+      - ./sql:/sql:ro
+
   # Labeling page + API. Needs the ml schema: run the extractor once first.
   # Only on localhost; open it with an SSH tunnel:
   #   ssh -L 8090:127.0.0.1:8090 root@server  ->  http://localhost:8090

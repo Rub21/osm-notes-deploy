@@ -17,6 +17,8 @@ Later comments are left out because they often contain the answer
 import datetime as dt
 import os
 import re
+import sys
+import time
 
 import fasttext
 import numpy as np
@@ -45,6 +47,7 @@ SEED = int(os.environ.get("SEED", "42"))
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "/output")
 SCHEMA_SQL = os.environ.get("SCHEMA_SQL", "/sql/ml_schema.sql")
 LABELER_DB_PASSWORD = os.environ.get("LABELER_DB_PASSWORD", "")
+WATCH_INTERVAL = int(os.environ.get("WATCH_INTERVAL", "300"))
 
 QUERY = """
 SELECT n.note_id,
@@ -62,6 +65,11 @@ JOIN note_comments_text t
   ON t.note_id = nc.note_id AND t.sequence_action = nc.sequence_action
 LEFT JOIN countries c
   ON c.country_id = n.id_country
+"""
+
+# Notes that still have no language (new notes since the last run).
+NEW_NOTES_QUERY = QUERY + """
+WHERE NOT EXISTS (SELECT 1 FROM ml.note_lang l WHERE l.note_id = n.note_id)
 """
 
 COLUMNS = ["note_id", "country", "lat", "lon", "created_at", "status", "closed_at", "text"]
@@ -126,6 +134,50 @@ def setup_schema() -> None:
     print("Schema ml ready")
 
 
+def write_lang(conn, df: pd.DataFrame) -> None:
+    """Upsert language rows. Safe to repeat."""
+    with conn.cursor() as cur:
+        cur.executemany("""
+            INSERT INTO ml.note_lang (note_id, lang, lang_prob, app)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (note_id) DO UPDATE
+            SET lang = EXCLUDED.lang, lang_prob = EXCLUDED.lang_prob,
+                app = EXCLUDED.app, detected_at = now()""",
+            [(int(r.note_id), r.lang, float(r.lang_prob), r.app)
+             for r in df[["note_id", "lang", "lang_prob", "app"]].itertuples(index=False)])
+
+
+def update_new_notes(model) -> int:
+    """Detect the language only for notes not yet in ml.note_lang.
+    Commits after each chunk, so a crash keeps the progress."""
+    done = 0
+    with psycopg.connect() as conn:
+        while True:
+            rows = conn.execute(NEW_NOTES_QUERY + f" LIMIT {CHUNK_SIZE}").fetchall()
+            if not rows:
+                break
+            df = add_lang_and_app(pd.DataFrame(rows, columns=COLUMNS), model)
+            write_lang(conn, df)
+            conn.commit()
+            done += len(df)
+            print(f"  language set for {done:,} new notes", flush=True)
+    return done
+
+
+def watch() -> None:
+    """Keep ml.note_lang up to date with the notes the daemon adds."""
+    setup_schema()
+    model = fasttext.load_model("/models/lid.176.ftz")
+    print(f"Watching for new notes every {WATCH_INTERVAL}s", flush=True)
+    while True:
+        try:
+            n = update_new_notes(model)
+            print(f"{dt.datetime.now():%Y-%m-%d %H:%M:%S} new notes: {n:,}", flush=True)
+        except psycopg.Error as e:
+            print(f"DB error, retrying later: {e}", flush=True)
+        time.sleep(WATCH_INTERVAL)
+
+
 def main() -> None:
     print(f"Languages: {LANGS} | sample size: {SAMPLE_SIZE}")
     setup_schema()
@@ -185,4 +237,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    if "--watch" in sys.argv:
+        watch()
+    else:
+        main()
