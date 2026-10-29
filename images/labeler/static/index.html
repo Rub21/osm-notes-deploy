@@ -224,8 +224,15 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
 
 <script>
 const $ = (s) => document.querySelector(s);
-const LANG_NAMES = { es: "Español", en: "Inglés", pt: "Portugués", fr: "Francés", de: "Alemán",
-  it: "Italiano", ru: "Ruso", pl: "Polaco", nl: "Neerlandés", ja: "Japonés", und: "Sin idioma (cortas)" };
+// Language names from the browser (Intl), so every ISO code gets a name.
+const LANG_DISPLAY = (() => { try { return new Intl.DisplayNames(["es"], { type: "language" }); } catch { return null; } })();
+function langName(code) {
+  if (code === "und") return "Sin idioma (cortas)";
+  let name = "";
+  try { name = LANG_DISPLAY ? LANG_DISPLAY.of(code) : ""; } catch { name = ""; }
+  if (!name || name === code) return code;
+  return `${name.charAt(0).toUpperCase()}${name.slice(1)} (${code})`;
+}
 const GROUPS = [
   { grp: "map", title: "Hay que tocar el mapa" },
   { grp: "close", title: "Se cierra sin tocar el mapa" },
@@ -428,7 +435,7 @@ $("#lang").onchange = () => { store.set("lang", $("#lang").value); loadBatch(); 
     const langs = await (await api("/api/langs")).json();
     const sel = $("#lang");
     sel.innerHTML = `<option value="">— elige —</option>` + langs.map((l) =>
-      `<option value="${esc(l.lang)}">${esc(LANG_NAMES[l.lang] || l.lang)} · ${l.labeled}/${l.notes.toLocaleString("es")}</option>`).join("");
+      `<option value="${esc(l.lang)}">${esc(langName(l.lang))} · ${l.labeled}/${l.notes.toLocaleString("es")}</option>`).join("");
     const saved = store.get("lang");
     if (saved && langs.some((l) => l.lang === saved)) { sel.value = saved; loadBatch(); }
     else renderCard();
