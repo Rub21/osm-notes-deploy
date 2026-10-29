@@ -86,8 +86,30 @@ services:
       PGDATABASE: ${DBNAME}
       SAMPLE_SIZE: ${SAMPLE_SIZE:-1000}
       LANGS: ${LANGS:-es,en,und}
+      LABELER_DB_PASSWORD: ${LABELER_DB_PASSWORD}
     volumes:
       - ./output:/output
+      - ./sql:/sql:ro
+
+  # Labeling page + API. Needs the ml schema: run the extractor once first.
+  # Only on localhost; open it with an SSH tunnel:
+  #   ssh -L 8090:127.0.0.1:8090 root@server  ->  http://localhost:8090
+  labeler:
+    build: ./images/labeler
+    image: osm-notes/labeler:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGPORT: 5432
+      PGUSER: labeler
+      PGPASSWORD: ${LABELER_DB_PASSWORD}
+      PGDATABASE: ${DBNAME}
+      LABELER_TOKEN: ${LABELER_TOKEN:-}
+    ports:
+      - "127.0.0.1:${LABELER_PORT:-8090}:8000"
 
 volumes:
   pgdata:

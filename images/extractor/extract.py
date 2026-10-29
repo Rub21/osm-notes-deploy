@@ -1,9 +1,13 @@
 """Extract OSM notes (whole planet), detect language and write a sample for labeling.
 
-Outputs (in OUTPUT_DIR):
-  notes_<date>.csv.gz   all notes in the selected languages
-  sample_<date>.csv     stratified sample of SAMPLE_SIZE notes, with empty
-                        `category` and `action` columns to label
+Steps:
+  1. Create/upgrade the `ml` schema (sql/ml_schema.sql).
+  2. Detect the language of every note and store it in ml.note_lang
+     (all languages, so the labeling page can serve any of them).
+  3. Write, in OUTPUT_DIR:
+     notes_<date>.csv.gz   all notes in the selected languages
+     sample_<date>.csv     stratified sample of SAMPLE_SIZE notes in the
+                           labeling CSV format (empty `category`)
 
 Only the first comment (the one that opened the note) is used as text.
 Later comments are left out because they often contain the answer
@@ -18,6 +22,7 @@ import fasttext
 import numpy as np
 import pandas as pd
 import psycopg
+import psycopg.sql
 
 # App that created the note, detected from tags/signatures in the text.
 APP_PATTERNS = [
@@ -38,6 +43,8 @@ MIN_LANG_PROB = float(os.environ.get("MIN_LANG_PROB", "0.5"))
 CHUNK_SIZE = int(os.environ.get("CHUNK_SIZE", "100000"))
 SEED = int(os.environ.get("SEED", "42"))
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "/output")
+SCHEMA_SQL = os.environ.get("SCHEMA_SQL", "/sql/ml_schema.sql")
+LABELER_DB_PASSWORD = os.environ.get("LABELER_DB_PASSWORD", "")
 
 QUERY = """
 SELECT n.note_id,
@@ -60,6 +67,10 @@ LEFT JOIN countries c
 COLUMNS = ["note_id", "country", "lat", "lon", "created_at", "status", "closed_at", "text"]
 OUT_COLUMNS = ["note_id", "country", "lang", "lang_prob", "app", "lat", "lon",
                "created_at", "status", "closed_at", "text"]
+# Same format as the labeling page export/import.
+LABEL_CSV_COLUMNS = ["note_id", "lang", "country", "app", "text", "category", "claude_category"]
+APP_SIGNATURE = re.compile(
+    r"\bvia (" + "|".join(p for _, p in APP_PATTERNS) + r")\b.*$", re.I)
 
 
 def detect_app(text: str) -> str:
@@ -74,7 +85,7 @@ def clean_for_lang(text: str) -> str:
     """Remove URLs, hashtags and app signatures before language detection."""
     text = re.sub(r"https?://\S+", " ", text)
     text = re.sub(r"#\S+", " ", text)
-    text = re.sub(r"\bvia \S+.*$", " ", text, flags=re.I)
+    text = APP_SIGNATURE.sub(" ", text)
     return " ".join(text.split())
 
 
@@ -105,8 +116,19 @@ def stratified_sample(df: pd.DataFrame, n: int, keys: list[str]) -> pd.DataFrame
     return out.sample(frac=1, random_state=SEED)
 
 
+def setup_schema() -> None:
+    with psycopg.connect(autocommit=True) as conn:
+        with open(SCHEMA_SQL, encoding="utf-8") as f:
+            conn.execute(f.read())
+        if LABELER_DB_PASSWORD:
+            conn.execute(psycopg.sql.SQL("ALTER ROLE labeler PASSWORD {}").format(
+                psycopg.sql.Literal(LABELER_DB_PASSWORD)))
+    print("Schema ml ready")
+
+
 def main() -> None:
     print(f"Languages: {LANGS} | sample size: {SAMPLE_SIZE}")
+    setup_schema()
     model = fasttext.load_model("/models/lid.176.ftz")
     stamp = dt.date.today().strftime("%Y%m%d")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -116,13 +138,20 @@ def main() -> None:
     lang_counts: dict[str, int] = {}
     kept = []
     # Server-side cursor: read in chunks so the whole planet does not sit in memory.
-    with psycopg.connect() as conn, conn.cursor(name="notes_cursor") as cur:
+    # A second connection writes ml.note_lang (the cursor holds the first one).
+    with psycopg.connect() as conn, psycopg.connect() as wconn, \
+            conn.cursor(name="notes_cursor") as cur:
+        wconn.execute("TRUNCATE ml.note_lang")
         cur.itersize = CHUNK_SIZE
         cur.execute(QUERY)
         first = True
         while rows := cur.fetchmany(CHUNK_SIZE):
             df = add_lang_and_app(pd.DataFrame(rows, columns=COLUMNS), model)
             total += len(df)
+            with wconn.cursor().copy(
+                    "COPY ml.note_lang (note_id, lang, lang_prob, app) FROM STDIN") as copy:
+                for r in df[["note_id", "lang", "lang_prob", "app"]].itertuples(index=False):
+                    copy.write_row((int(r.note_id), r.lang, float(r.lang_prob), r.app))
             for lang, count in df["lang"].value_counts().items():
                 lang_counts[lang] = lang_counts.get(lang, 0) + int(count)
             df = df[df["lang"].isin(LANGS)][OUT_COLUMNS]
@@ -131,6 +160,8 @@ def main() -> None:
             first = False
             kept.append(df)
             print(f"  read {total:,} notes, kept {sum(len(k) for k in kept):,}", flush=True)
+        wconn.commit()
+    print(f"ml.note_lang: {total:,} notes")
 
     if total == 0:
         raise SystemExit("No notes found. Has the ingestion finished?")
@@ -143,9 +174,9 @@ def main() -> None:
     print(f"Notes in {LANGS}: {len(df):,} -> {full_path}")
 
     sample = stratified_sample(df, SAMPLE_SIZE, ["lang", "app"])
-    sample = sample.assign(category="", action="")
+    sample = sample.assign(category="", claude_category="")
     sample_path = f"{OUTPUT_DIR}/sample_{stamp}.csv"
-    sample.to_csv(sample_path, index=False)
+    sample[LABEL_CSV_COLUMNS].to_csv(sample_path, index=False)
     print(f"Wrote {sample_path} ({len(sample)} rows)")
     print("Sample by lang/app:")
     print(sample.groupby(["lang", "app"]).size().to_string())
