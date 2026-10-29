@@ -63,6 +63,7 @@ in the same DB but in our own `ml` schema (see `sql/ml_schema.sql`).
 3. From your laptop: `ssh -L 8090:127.0.0.1:8090 root@<server>` and open
    http://localhost:8090
 
-Categories are fixed in `ml.categories` (edit with SQL). Claude only fills
+Categories are defined in `sql/ml_schema.sql` (re-applied on every extractor
+run) and explained in `docs/guia_etiquetado.md`. Claude only fills
 the CSV; a person reviews it and uploads it. `GET /api/labels.csv` exports
 all labels with the note text for training.

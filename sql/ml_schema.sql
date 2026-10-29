@@ -5,8 +5,10 @@
 
 CREATE SCHEMA IF NOT EXISTS ml;
 
--- Fixed label set. Edit only with SQL (admin), not from the labeling page.
+-- Fixed label set. The source of truth is this file: every run of the
+-- extractor upserts these rows. Labelers cannot create categories.
 -- Each category implies the action for the mapper.
+-- Full rules and edge cases: docs/guia_etiquetado.md
 CREATE TABLE IF NOT EXISTS ml.categories (
  code     TEXT PRIMARY KEY,
  grp      TEXT NOT NULL CHECK (grp IN ('map', 'close', 'unsure')),
@@ -17,19 +19,43 @@ CREATE TABLE IF NOT EXISTS ml.categories (
  sort     INTEGER NOT NULL,
  active   BOOLEAN NOT NULL DEFAULT TRUE
 );
+ALTER TABLE ml.categories ADD COLUMN IF NOT EXISTS description TEXT;
 
-INSERT INTO ml.categories (code, grp, action, name_es, name_en, example, sort) VALUES
- ('missing_place',  'map',    'add',          'Lugar faltante',            'Missing place',           'Aquí hay una bodega nueva', 1),
- ('place_changed',  'map',    'update',       'Lugar cerrado o cambiado',  'Place closed or changed', 'La farmacia cerró', 2),
- ('wrong_name',     'map',    'update',       'Nombre incorrecto',         'Wrong name',              'Se llama Av. Grau, no Av. Brasil', 3),
- ('wrong_road',     'map',    'update',       'Calle o camino incorrecto', 'Wrong road or path',      'Esta calle no tiene salida', 4),
- ('other_data',     'map',    'update',       'Otro dato incorrecto',      'Other wrong data',        'El horario cambió', 5),
- ('spam',           'close',  'close',        'Spam / publicidad',         'Spam / advertising',      'Mejor pollería, delivery 999…', 6),
- ('empty',          'close',  'close',        'Vacía o sin sentido',       'Empty or nonsense',       'ok, asdf, hola', 7),
- ('personal_data',  'close',  'close_hide',   'Datos personales',          'Personal data',           'Casa de mi abuela, teléfonos', 8),
- ('not_mappable',   'close',  'close',        'Opinión o no mapeable',     'Opinion or not mappable', 'Zona peligrosa, buen servicio', 9),
- ('unsure',         'unsure', 'review',       'No sé / ambigua',           'Unsure / ambiguous',      NULL, 10)
-ON CONFLICT (code) DO NOTHING;
+INSERT INTO ml.categories (code, grp, action, name_es, name_en, example, sort, description) VALUES
+ ('missing_place', 'map', 'add', 'Lugar faltante', 'Missing place',
+  'Aquí hay una bodega nueva', 1,
+  'Un lugar, negocio, edificio o punto de interés que existe y no está en el mapa.'),
+ ('place_changed', 'map', 'update', 'Lugar cerrado o cambiado', 'Place closed or changed',
+  'La farmacia cerró', 2,
+  'Un lugar que ya está en el mapa cerró, se mudó o ahora es otra cosa.'),
+ ('wrong_name', 'map', 'update', 'Nombre incorrecto', 'Wrong name',
+  'Se llama Av. Grau, no Av. Brasil', 3,
+  'El nombre de un lugar o calle está mal escrito, es otro o falta.'),
+ ('wrong_road', 'map', 'update', 'Calle o camino faltante o incorrecto', 'Missing or wrong road',
+  'Esta calle no tiene salida', 4,
+  'Calles, caminos, senderos o vías que faltan, no existen o tienen mal la forma, el sentido, el acceso o la conexión.'),
+ ('other_data', 'map', 'update', 'Otro dato incorrecto', 'Other wrong data',
+  'El horario cambió', 5,
+  'Algo del mapa necesita cambiar pero no es lugar, nombre ni calle: horario, dirección, número, teléfono, tipo, límites, agua, uso del suelo.'),
+ ('spam', 'close', 'close', 'Spam / publicidad', 'Spam / advertising',
+  'Mejor pollería, delivery 999…', 6,
+  'Promociona un negocio o servicio, o tiene enlaces sin relación con el mapa.'),
+ ('empty', 'close', 'close', 'Vacía o sin sentido', 'Empty or nonsense',
+  'ok, asdf, hola', 7,
+  'No dice nada que se pueda entender ni verificar: vacía, saludos, pruebas, letras al azar.'),
+ ('personal_data', 'close', 'close_hide', 'Datos personales', 'Personal data',
+  'Casa de mi abuela, teléfonos', 8,
+  'Contiene datos de una persona privada (casa de alguien, teléfono, correo, nombre completo). Gana sobre cualquier otra categoría.'),
+ ('not_mappable', 'close', 'close', 'Opinión o no mapeable', 'Opinion or not mappable',
+  'Zona peligrosa, buen servicio', 9,
+  'Opiniones, quejas, preguntas o información que no va en OSM (seguridad, calidad, precios, tráfico del momento).'),
+ ('unsure', 'unsure', 'review', 'No sé / ambigua', 'Unsure / ambiguous',
+  NULL, 10,
+  'No queda claro qué pide la nota o encaja igual en dos categorías. No fuerces una.')
+ON CONFLICT (code) DO UPDATE SET
+ grp = EXCLUDED.grp, action = EXCLUDED.action, name_es = EXCLUDED.name_es,
+ name_en = EXCLUDED.name_en, example = EXCLUDED.example, sort = EXCLUDED.sort,
+ description = EXCLUDED.description;
 
 -- Language of the opening comment of every note (filled by the extractor).
 -- rnd gives cheap random batches without ORDER BY random() over millions of rows.

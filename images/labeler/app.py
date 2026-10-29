@@ -75,7 +75,7 @@ def check_token(token: str | None) -> None:
 def categories() -> dict[str, dict]:
     with pool.connection() as conn:
         rows = conn.execute(
-            "SELECT code, grp, action, name_es, name_en, example, sort "
+            "SELECT code, grp, action, name_es, name_en, example, description, sort "
             "FROM ml.categories WHERE active ORDER BY sort").fetchall()
     return {r["code"]: r for r in rows}
 

@@ -202,7 +202,7 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
         </div>
         <button class="btn primary" id="download">Descargar CSV</button>
       </div>
-      <table id="cat-table"><thead><tr><th>code</th><th>Categoría</th><th>Ejemplo</th></tr></thead><tbody></tbody></table>
+      <table id="cat-table"><thead><tr><th>code</th><th>Categoría</th><th>Cuándo usarla</th><th>Ejemplo</th></tr></thead><tbody></tbody></table>
     </div>
     <div class="panel">
       <h2>Subir CSV etiquetado</h2>
@@ -283,7 +283,7 @@ function renderKeys() {
       n++;
       c.key = n === 10 ? "0" : String(n);
       const b = document.createElement("button");
-      b.className = `key ${c.grp}`; b.dataset.code = c.code;
+      b.className = `key ${c.grp}`; b.dataset.code = c.code; b.title = c.description || "";
       b.innerHTML = `<kbd>${c.key}</kbd><span><b>${c.name_es}</b><em>${c.example ? "“" + c.example + "”" : "si dudas, no fuerces"}</em></span>`;
       b.onclick = () => label(c.code);
       keys.appendChild(b);
@@ -291,7 +291,7 @@ function renderKeys() {
     div.appendChild(keys); box.appendChild(div);
   }
   $("#cat-table tbody").innerHTML = cats.map((c) =>
-    `<tr><td><code>${c.code}</code></td><td>${c.name_es}</td><td>${c.example || ""}</td></tr>`).join("");
+    `<tr><td><code>${c.code}</code></td><td>${c.name_es}</td><td>${c.description || ""}</td><td>${c.example || ""}</td></tr>`).join("");
 }
 
 /* ---------- Labeling ---------- */
