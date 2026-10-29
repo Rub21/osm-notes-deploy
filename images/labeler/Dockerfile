@@ -6,7 +6,9 @@ RUN pip install --no-cache-dir \
     "fastapi==0.115.*" \
     "uvicorn[standard]==0.32.*" \
     "python-multipart==0.0.*" \
-    "psycopg[binary,pool]==3.2.*"
+    "psycopg[binary,pool]==3.2.*" \
+    "httpx==0.27.*" \
+    "itsdangerous==2.2.*"
 
 COPY app.py /app/app.py
 COPY static/ /app/static/

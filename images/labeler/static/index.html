@@ -25,6 +25,7 @@
   }
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; }
 body {
   background-color: var(--paper);
@@ -118,6 +119,32 @@ section[hidden] { display: none; }
 }
 .btn.primary { background: var(--ink); color: var(--paper); }
 .btn:disabled { opacity: .45; cursor: default; }
+/* Account: OSM login button / profile */
+.account { display: flex; align-items: end; }
+.osm-login {
+  display: inline-flex; align-items: center; gap: 9px; text-decoration: none;
+  background: var(--map); color: var(--paper); border-radius: 3px;
+  padding: 8px 14px 8px 11px; font-weight: 600; letter-spacing: .01em;
+  box-shadow: var(--shadow); transition: transform .12s, filter .12s;
+}
+.osm-login:hover { transform: translateY(-1px); filter: brightness(1.08); }
+.osm-login svg { width: 18px; height: 18px; fill: currentColor; }
+.profile {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--card); border: 1px solid var(--rule); border-radius: 3px;
+  padding: 5px 10px 5px 5px;
+}
+.avatar {
+  width: 32px; height: 32px; border-radius: 50%; overflow: hidden; flex: none;
+  display: grid; place-items: center; background: var(--map-bg); color: var(--map);
+  font: 600 15px Fraunces, Georgia, serif;
+}
+.avatar img { width: 100%; height: 100%; object-fit: cover; }
+.profile-text { display: flex; flex-direction: column; line-height: 1.2; }
+.profile-text small { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft); }
+.profile-text a { font-weight: 600; text-decoration: none; }
+.profile-text a:hover { text-decoration: underline; }
+.logout { margin-left: 6px; font-size: 12px; color: var(--ink-soft); }
 .btn kbd { font: inherit; opacity: .6; margin-left: 6px; }
 
 /* Panels */
@@ -146,6 +173,8 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
   .card { padding: 22px 18px 18px; }
   input[type=text], select { min-width: 0; width: 100%; }
   .field { flex: 1 1 140px; }
+  .account { flex: 1 1 100%; }
+  .osm-login, .profile { flex: 1; justify-content: center; }
 }
 </style>
 </head>
@@ -156,17 +185,27 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
       <small>OpenStreetMap · notas</small>
       <h1>Libreta de etiquetado</h1>
     </div>
-    <div class="field">
-      <label for="user">Tu usuario OSM</label>
+    <div class="field" id="user-field" hidden>
+      <label for="user">Tu usuario</label>
       <input id="user" type="text" placeholder="usuario" autocomplete="username">
+    </div>
+    <div class="account" id="account" hidden>
+      <a class="osm-login" id="login" href="/auth/login" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>
+        <span>Entrar con OpenStreetMap</span>
+      </a>
+      <div class="profile" id="profile" hidden>
+        <span class="avatar" id="avatar"></span>
+        <span class="profile-text">
+          <small>Etiquetas como</small>
+          <a id="profile-name" target="_blank" rel="noopener"></a>
+        </span>
+        <a class="logout" href="/auth/logout" title="Cerrar sesión">salir</a>
+      </div>
     </div>
     <div class="field">
       <label for="lang">Idioma</label>
       <select id="lang"><option value="">cargando…</option></select>
-    </div>
-    <div class="field" id="token-field" hidden>
-      <label for="token">Token</label>
-      <input id="token" type="password" placeholder="token de acceso">
     </div>
   </header>
 
@@ -253,13 +292,10 @@ function toast(msg, err = false) {
 }
 
 async function api(path, opts = {}) {
-  const headers = { ...(opts.headers || {}) };
-  const token = $("#token").value.trim();
-  if (token) headers["X-Token"] = token;
-  const res = await fetch(path, { ...opts, headers });
+  const res = await fetch(path, { ...opts, credentials: "same-origin" });
   if (res.status === 401) {
-    $("#token-field").hidden = false; $("#token").focus();
-    throw new Error("Necesitas un token de acceso");
+    $("#login").focus();
+    throw new Error("Entra con tu cuenta de OSM");
   }
   if (!res.ok) {
     let msg = res.statusText;
@@ -269,7 +305,40 @@ async function api(path, opts = {}) {
   return res;
 }
 
+let me = { osm_login: false, user: null };
+
+function renderAccount() {
+  $("#user-field").hidden = me.osm_login;
+  $("#account").hidden = !me.osm_login;
+  if (!me.osm_login) return;
+  $("#login").hidden = !!me.user;
+  $("#profile").hidden = !me.user;
+  if (!me.user) return;
+  const name = me.user.name;
+  const link = $("#profile-name");
+  link.textContent = name;
+  link.href = `${me.osm_url}/user/${encodeURIComponent(name)}`;
+  const av = $("#avatar");
+  av.textContent = name.charAt(0).toUpperCase();
+  if (me.user.avatar) {
+    const img = new Image();
+    img.alt = ""; img.referrerPolicy = "no-referrer";
+    img.onload = () => { av.textContent = ""; av.appendChild(img); };
+    img.src = me.user.avatar;
+  }
+}
+
+function startHint() {
+  if (me.osm_login && !me.user) return "Entra con tu cuenta de OSM y elige un idioma.";
+  return me.osm_login ? "para empezar." : "y escribe tu usuario para empezar.";
+}
+
 function user() {
+  // With OSM login the server takes the name from the session.
+  if (me.osm_login) {
+    if (!me.user) { $("#login").focus(); throw new Error("Entra con tu cuenta de OSM"); }
+    return me.user.name;
+  }
   const u = $("#user").value.trim();
   if (u.length < 2) { $("#user").focus(); throw new Error("Escribe tu usuario primero"); }
   return u;
@@ -308,7 +377,7 @@ function renderCard() {
   const slot = $("#card-slot");
   document.querySelectorAll(".key").forEach((k) => k.classList.remove("current"));
   if (!queue.length || idx >= queue.length) {
-    slot.innerHTML = `<div class="card empty-state"><strong>${queue.length ? "Lote terminado" : "Elige un idioma"}</strong>${queue.length ? "Cargando más notas…" : "y escribe tu usuario para empezar."}</div>`;
+    slot.innerHTML = `<div class="card empty-state"><strong>${queue.length ? "Lote terminado" : "Elige un idioma"}</strong>${queue.length ? "Cargando más notas…" : startHint()}</div>`;
     $("#pos").textContent = "—"; return;
   }
   const n = queue[idx];
@@ -422,14 +491,13 @@ $("#skip").onclick = next;
 $("#back").onclick = back;
 
 $("#user").value = store.get("user");
-$("#token").value = store.get("token");
-if (store.get("token")) $("#token-field").hidden = false;
 $("#user").onchange = () => store.set("user", $("#user").value.trim());
-$("#token").onchange = () => store.set("token", $("#token").value.trim());
 $("#lang").onchange = () => { store.set("lang", $("#lang").value); loadBatch(); };
 
 (async function init() {
   try {
+    me = await (await api("/api/me")).json();
+    renderAccount();
     cats = await (await api("/api/categories")).json();
     renderKeys();
     const langs = await (await api("/api/langs")).json();

@@ -8,26 +8,45 @@
 - POST /api/import                upload a labeled CSV
 - GET  /api/stats                 labels per user/language/category
 - GET  /api/labels.csv            all labels with note text (for training)
+- GET  /api/me                    who is logged in
+- GET  /auth/login, /auth/callback, /auth/logout   OSM OAuth 2.0 login
+
+Login: when OSM_CLIENT_ID is set, writes need an OSM login and the label
+is saved with the OSM username. Without it (local dev) the page sends a
+free-text user name.
 
 CSV format (export and import):
   note_id,lang,country,app,text,category,claude_category
 Only note_id and category are required on import. Blank category = skipped.
 """
 
+import base64
 import csv
+import hashlib
 import io
 import os
 import random
 import re
+import secrets
 import time
+from urllib.parse import urlencode
 
-from fastapi import FastAPI, File, Form, Header, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+import httpx
+
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 from pydantic import BaseModel
+from starlette.middleware.sessions import SessionMiddleware
 
-LABELER_TOKEN = os.environ.get("LABELER_TOKEN", "")
+OSM_URL = os.environ.get("OSM_URL", "https://www.openstreetmap.org").rstrip("/")
+OSM_API_URL = os.environ.get("OSM_API_URL", "https://api.openstreetmap.org").rstrip("/")
+OSM_CLIENT_ID = os.environ.get("OSM_CLIENT_ID", "")
+OSM_CLIENT_SECRET = os.environ.get("OSM_CLIENT_SECRET", "")
+PUBLIC_URL = os.environ.get("PUBLIC_URL", "http://localhost:8090").rstrip("/")
+SESSION_SECRET = os.environ.get("SESSION_SECRET") or secrets.token_urlsafe(32)
+OSM_LOGIN = bool(OSM_CLIENT_ID)
 MAX_BATCH = 1000
 CSV_COLUMNS = ["note_id", "lang", "country", "app", "text", "category", "claude_category"]
 USER_RE = re.compile(r"^[\w .@-]{2,40}$")
@@ -35,6 +54,9 @@ USER_RE = re.compile(r"^[\w .@-]{2,40}$")
 # Uses PGHOST, PGUSER (labeler), PGPASSWORD, PGDATABASE.
 pool = ConnectionPool(kwargs={"row_factory": dict_row}, min_size=1, max_size=5, open=True)
 app = FastAPI(title="OSM notes labeler")
+app.add_middleware(
+    SessionMiddleware, secret_key=SESSION_SECRET, session_cookie="labeler_session",
+    max_age=30 * 24 * 3600, same_site="lax", https_only=PUBLIC_URL.startswith("https"))
 
 NOTES_SQL = """
 SELECT nl.note_id, nl.lang, nl.app,
@@ -60,16 +82,72 @@ LIMIT %(n)s
 """
 
 
-def check_user(user: str) -> str:
-    user = (user or "").strip()
-    if not USER_RE.match(user):
+def current_user(request: Request, typed: str | None = None) -> str:
+    """OSM login when configured; otherwise the name typed in the page."""
+    if OSM_LOGIN:
+        user = request.session.get("user")
+        if not user:
+            raise HTTPException(401, "Entra con tu cuenta de OSM")
+        return user["name"]
+    typed = (typed or "").strip()
+    if not USER_RE.match(typed):
         raise HTTPException(400, "Nombre de usuario inválido (2-40 letras, números, . @ -)")
-    return user
+    return typed
 
 
-def check_token(token: str | None) -> None:
-    if LABELER_TOKEN and token != LABELER_TOKEN:
-        raise HTTPException(401, "Token inválido")
+@app.get("/api/me")
+def me(request: Request):
+    return {"osm_login": OSM_LOGIN, "osm_url": OSM_URL, "user": request.session.get("user")}
+
+
+@app.get("/auth/login")
+def login(request: Request):
+    if not OSM_LOGIN:
+        raise HTTPException(404, "Login con OSM no configurado")
+    # PKCE + state, kept in the signed session cookie.
+    verifier = secrets.token_urlsafe(48)
+    challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    state = secrets.token_urlsafe(16)
+    request.session.update(oauth_state=state, oauth_verifier=verifier)
+    query = urlencode({
+        "response_type": "code", "client_id": OSM_CLIENT_ID,
+        "redirect_uri": f"{PUBLIC_URL}/auth/callback", "scope": "read_prefs",
+        "state": state, "code_challenge": challenge, "code_challenge_method": "S256"})
+    return RedirectResponse(f"{OSM_URL}/oauth2/authorize?{query}")
+
+
+@app.get("/auth/callback")
+def callback(request: Request, code: str = "", state: str = ""):
+    if not OSM_LOGIN:
+        raise HTTPException(404, "Login con OSM no configurado")
+    expected = request.session.pop("oauth_state", None)
+    verifier = request.session.pop("oauth_verifier", None)
+    if not code or not expected or state != expected:
+        raise HTTPException(400, "Login inválido o vencido. Vuelve a intentar.")
+    with httpx.Client(timeout=15) as http:
+        tok = http.post(f"{OSM_URL}/oauth2/token", data={
+            "grant_type": "authorization_code", "code": code,
+            "redirect_uri": f"{PUBLIC_URL}/auth/callback",
+            "client_id": OSM_CLIENT_ID, "client_secret": OSM_CLIENT_SECRET,
+            "code_verifier": verifier})
+        if tok.status_code != 200:
+            raise HTTPException(502, "OSM rechazó el login")
+        details = http.get(f"{OSM_API_URL}/api/0.6/user/details.json", headers={
+            "Authorization": f"Bearer {tok.json()['access_token']}"})
+        if details.status_code != 200:
+            raise HTTPException(502, "No se pudo leer el usuario de OSM")
+    u = details.json()["user"]
+    # Only the name and id are kept; the OSM access token is dropped.
+    request.session["user"] = {"id": u["id"], "name": u["display_name"],
+                               "avatar": (u.get("img") or {}).get("href")}
+    return RedirectResponse("/")
+
+
+@app.get("/auth/logout")
+def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse("/")
 
 
 def categories() -> dict[str, dict]:
@@ -151,7 +229,7 @@ class Label(BaseModel):
 
 
 class LabelsIn(BaseModel):
-    user: str
+    user: str | None = None
     labels: list[Label]
 
 
@@ -177,9 +255,8 @@ def save_labels(user: str, items: list[tuple[int, str, str | None]]) -> dict:
 
 
 @app.post("/api/labels")
-def post_labels(body: LabelsIn, x_token: str | None = Header(None)):
-    check_token(x_token)
-    user = check_user(body.user)
+def post_labels(body: LabelsIn, request: Request):
+    user = current_user(request, body.user)
     cats = categories()
     items = []
     for lb in body.labels:
@@ -207,10 +284,9 @@ def read_csv(raw: bytes) -> list[dict]:
 
 
 @app.post("/api/import")
-async def import_csv(file: UploadFile = File(...), user: str = Form(...),
-                     x_token: str | None = Header(None)):
-    check_token(x_token)
-    user = check_user(user)
+async def import_csv(request: Request, file: UploadFile = File(...),
+                     user: str | None = Form(None)):
+    user = current_user(request, user)
     raw = await file.read()
     if len(raw) > 20_000_000:
         raise HTTPException(400, "Archivo muy grande (máx. 20 MB)")
@@ -264,8 +340,9 @@ def stats():
 
 
 @app.get("/api/labels.csv")
-def labels_csv(x_token: str | None = Header(None), token: str | None = None):
-    check_token(x_token or token)
+def labels_csv(request: Request):
+    if OSM_LOGIN:
+        current_user(request)
     with pool.connection() as conn:
         ids = [r["note_id"] for r in conn.execute(
             "SELECT DISTINCT note_id FROM ml.note_labels")]

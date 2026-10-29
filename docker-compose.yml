@@ -128,7 +128,11 @@ services:
       PGUSER: labeler
       PGPASSWORD: ${LABELER_DB_PASSWORD}
       PGDATABASE: ${DBNAME}
-      LABELER_TOKEN: ${LABELER_TOKEN:-}
+      # OSM OAuth 2.0 login. Empty OSM_CLIENT_ID = no login (local dev).
+      OSM_CLIENT_ID: ${OSM_CLIENT_ID:-}
+      OSM_CLIENT_SECRET: ${OSM_CLIENT_SECRET:-}
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8090}
+      SESSION_SECRET: ${SESSION_SECRET:-}
     ports:
       - "127.0.0.1:${LABELER_PORT:-8090}:8000"
 
