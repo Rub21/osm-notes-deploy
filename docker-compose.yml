@@ -68,6 +68,27 @@ services:
       - ingestion_tmp:/var/tmp/osm-notes-ingestion
 
 
+  # One-off job: extracts notes (whole planet) and a sample to label.
+  #   docker compose run --rm extractor
+  # Output in ./output (sample_<date>.csv and notes_<date>.csv.gz).
+  extractor:
+    build: ./images/extractor
+    image: osm-notes/extractor:latest
+    profiles: ["tools"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGPORT: 5432
+      PGUSER: ${DB_USER}
+      PGPASSWORD: ${DB_PASSWORD}
+      PGDATABASE: ${DBNAME}
+      SAMPLE_SIZE: ${SAMPLE_SIZE:-1000}
+      LANGS: ${LANGS:-es,en,und}
+    volumes:
+      - ./output:/output
+
 volumes:
   pgdata:
   ingestion_data:
