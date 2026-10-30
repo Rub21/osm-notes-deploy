@@ -35,18 +35,24 @@ JOIN note_comments_text t ON t.note_id = n.note_id AND t.sequence_action = 1;
 
 ## Extract notes for labeling
 
-After the ingestion finishes, run the extractor once:
+After the ingestion finishes, run the extractor:
 
 ```bash
-docker compose run --rm extractor
+docker compose run --rm extractor            # only missing or outdated notes
+docker compose run --rm extractor --force    # recompute every note
+docker compose run --rm extractor --export   # also write notes_<date>.csv.gz
 ```
+
+It saves progress every 100,000 note ids. If it stops, run it again and it
+continues where it stopped. Bump `EXTRACT_VERSION` in `extract.py` when
+`templates.py` or the language detection changes, so old rows are redone.
 
 It writes to `./output`:
 
 - `sample_<date>.csv`: 1000 notes from the whole planet (Spanish, English and
   short/undetected text), spread by language and app, with empty `category`
   and `theme` columns to label.
-- `notes_<date>.csv.gz`: all notes in those languages.
+- `notes_<date>.csv.gz` (only with `--export`): all notes in those languages.
 
 Only the text that opened the note is used. Closing comments are left out so
 they do not leak the answer. Change `SAMPLE_SIZE` and `LANGS` in `.env`.

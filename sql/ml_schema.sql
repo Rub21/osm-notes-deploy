@@ -103,6 +103,9 @@ ALTER TABLE ml.note_lang ADD COLUMN IF NOT EXISTS theme_auto TEXT;
 -- Category set by rule (e.g. template-only "place has gone" -> place_changed).
 -- These notes are not sent to people for labeling.
 ALTER TABLE ml.note_lang ADD COLUMN IF NOT EXISTS rule_category TEXT;
+-- Extractor version that produced the row (EXTRACT_VERSION in extract.py).
+-- Rows with an older version are redone on the next extractor run.
+ALTER TABLE ml.note_lang ADD COLUMN IF NOT EXISTS extract_version SMALLINT NOT NULL DEFAULT 0;
 
 -- Human-reviewed labels only. One row per note and user (re-labeling updates it).
 -- claude_category keeps Claude's suggestion, to measure how often it was right.

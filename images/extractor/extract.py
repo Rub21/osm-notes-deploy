@@ -15,8 +15,12 @@ Later comments are left out because they often contain the answer
 ("fixed", "closed, it does not exist") and would leak the label.
 
 Modes:
-  extract.py            full run (recomputes every note)
-  extract.py --watch    keep ml.note_lang up to date with new notes
+  extract.py            process what is missing: new notes and notes done with
+                        an older EXTRACT_VERSION. Saves progress every range of
+                        note ids, so after a crash it continues where it stopped.
+  extract.py --force    recompute every note from scratch
+  extract.py --watch    keep ml.note_lang up to date with new notes (lang-updater)
+  extract.py --export   also write all notes in LANGS to notes_<date>.csv.gz
 """
 
 import datetime as dt
@@ -55,6 +59,10 @@ OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "/output")
 SCHEMA_SQL = os.environ.get("SCHEMA_SQL", "/sql/ml_schema.sql")
 LABELER_DB_PASSWORD = os.environ.get("LABELER_DB_PASSWORD", "")
 WATCH_INTERVAL = int(os.environ.get("WATCH_INTERVAL", "300"))
+# Note ids per step. Each step is committed, so it is the unit of progress.
+RANGE_SIZE = int(os.environ.get("RANGE_SIZE", "100000"))
+# Bump when templates.py or the language logic changes: older rows are redone.
+EXTRACT_VERSION = 2
 
 QUERY = """
 SELECT n.note_id,
@@ -164,24 +172,35 @@ def setup_schema() -> None:
     print("Schema ml ready")
 
 
+UPSERT_SQL = """
+INSERT INTO ml.note_lang (note_id, lang, lang_prob, app, template, user_text,
+                          poi_type, theme_auto, rule_category, extract_version)
+SELECT DISTINCT ON (note_id) note_id, lang, lang_prob, app, template, user_text,
+       poi_type, theme_auto, rule_category, %(v)s
+FROM stage_note_lang ORDER BY note_id
+ON CONFLICT (note_id) DO UPDATE
+SET lang = EXCLUDED.lang, lang_prob = EXCLUDED.lang_prob, app = EXCLUDED.app,
+    template = EXCLUDED.template, user_text = EXCLUDED.user_text,
+    poi_type = EXCLUDED.poi_type, theme_auto = EXCLUDED.theme_auto,
+    rule_category = EXCLUDED.rule_category, extract_version = EXCLUDED.extract_version,
+    detected_at = now()
+"""
+
+
 def write_lang(conn, df: pd.DataFrame) -> None:
-    """Upsert language rows. Safe to repeat."""
-    with conn.cursor() as cur:
-        cur.executemany("""
-            INSERT INTO ml.note_lang (note_id, lang, lang_prob, app, template, user_text,
-                                      poi_type, theme_auto, rule_category)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (note_id) DO UPDATE
-            SET lang = EXCLUDED.lang, lang_prob = EXCLUDED.lang_prob, app = EXCLUDED.app,
-                template = EXCLUDED.template, user_text = EXCLUDED.user_text,
-                poi_type = EXCLUDED.poi_type, theme_auto = EXCLUDED.theme_auto,
-                rule_category = EXCLUDED.rule_category, detected_at = now()""",
-            list(lang_rows(df)))
+    """Upsert rows through a temp table (COPY is fast). DISTINCT ON drops the
+    duplicate note texts the ingestion sometimes stores. Safe to repeat."""
+    conn.execute("CREATE TEMP TABLE IF NOT EXISTS stage_note_lang "
+                 "(LIKE ml.note_lang INCLUDING DEFAULTS) ON COMMIT DELETE ROWS")
+    with conn.cursor().copy(
+            "COPY stage_note_lang (" + ", ".join(LANG_COLUMNS) + ") FROM STDIN") as copy:
+        for row in lang_rows(df):
+            copy.write_row(row)
+    conn.execute(UPSERT_SQL, {"v": EXTRACT_VERSION})
 
 
 def update_new_notes(model) -> int:
-    """Process only notes not yet in ml.note_lang.
-    Commits after each chunk, so a crash keeps the progress."""
+    """Process only notes not yet in ml.note_lang (used by --watch)."""
     done = 0
     with psycopg.connect() as conn:
         while True:
@@ -210,6 +229,95 @@ def watch() -> None:
         time.sleep(WATCH_INTERVAL)
 
 
+def process_all(model, force: bool) -> int:
+    """Walk note ids in ranges. Without force, only notes missing in
+    ml.note_lang or done with an older EXTRACT_VERSION are processed, so a
+    second run skips finished ranges and continues where the last one stopped."""
+    pending = "" if force else """
+      AND NOT EXISTS (SELECT 1 FROM ml.note_lang l
+                      WHERE l.note_id = n.note_id AND l.extract_version >= %(v)s)"""
+    sql = QUERY + " WHERE n.note_id >= %(lo)s AND n.note_id < %(hi)s" + pending
+    done = 0
+    with psycopg.connect() as conn:
+        max_id = conn.execute("SELECT COALESCE(max(note_id), 0) FROM notes").fetchone()[0]
+        for lo in range(0, max_id + 1, RANGE_SIZE):
+            hi = lo + RANGE_SIZE
+            rows = conn.execute(sql, {"lo": lo, "hi": hi, "v": EXTRACT_VERSION}).fetchall()
+            if rows:
+                df = add_features(pd.DataFrame(rows, columns=COLUMNS), model)
+                write_lang(conn, df)
+                done += len(df)
+            conn.commit()
+            pct = min(100, round(100 * hi / max(max_id, 1)))
+            print(f"  ids {lo:>9,}-{hi - 1:<9,} {len(rows):>7,} processed "
+                  f"| total {done:,} | {pct}%", flush=True)
+    return done
+
+
+def print_summary() -> None:
+    with psycopg.connect() as conn:
+        total, current = conn.execute(
+            "SELECT count(*), count(*) FILTER (WHERE extract_version >= %s) FROM ml.note_lang",
+            (EXTRACT_VERSION,)).fetchone()
+        langs = conn.execute("SELECT lang, count(*) FROM ml.note_lang "
+                             "GROUP BY 1 ORDER BY 2 DESC LIMIT 10").fetchall()
+        tpls = conn.execute("SELECT COALESCE(template, 'none'), count(*) FROM ml.note_lang "
+                            "GROUP BY 1 ORDER BY 2 DESC").fetchall()
+    print(f"ml.note_lang: {total:,} notes, {current:,} with version {EXTRACT_VERSION}")
+    print("Notes by language (top 10):")
+    for lang, count in langs:
+        print(f"  {lang:5} {count:>10,}")
+    print("Notes by app template:")
+    for tpl, count in tpls:
+        print(f"  {tpl:15} {count:>10,}")
+
+
+def export_csv(path: str) -> None:
+    """All notes in LANGS with their features, streamed to a gzip CSV."""
+    sql = QUERY + " WHERE EXISTS (SELECT 1 FROM ml.note_lang l WHERE l.note_id = n.note_id " \
+                  "AND l.lang = ANY(%(langs)s))"
+    first = True
+    with psycopg.connect() as conn, conn.cursor(name="export_cursor") as cur:
+        cur.execute(sql, {"langs": LANGS})
+        while rows := cur.fetchmany(CHUNK_SIZE):
+            df = pd.DataFrame(rows, columns=COLUMNS)
+            feats = pd.DataFrame(conn.execute(
+                "SELECT note_id, lang, lang_prob, app, template, poi_type, theme_auto, "
+                "rule_category, user_text FROM ml.note_lang WHERE note_id = ANY(%s)",
+                (df["note_id"].tolist(),)).fetchall(),
+                columns=["note_id", "lang", "lang_prob", "app", "template", "poi_type",
+                         "theme_auto", "rule_category", "user_text"])
+            df = df.merge(feats, on="note_id").drop_duplicates("note_id")
+            df["user_text"] = df["user_text"].fillna(df["text"])
+            df[OUT_COLUMNS].to_csv(path, mode="w" if first else "a", header=first,
+                                   index=False, compression="gzip")
+            first = False
+    print(f"Wrote {path}")
+
+
+def write_sample(stamp: str) -> None:
+    """Stratified sample of notes in LANGS (not labeled by rule), for labeling."""
+    with psycopg.connect() as conn:
+        keys = pd.DataFrame(conn.execute(
+            "SELECT note_id, lang, app FROM ml.note_lang "
+            "WHERE lang = ANY(%s) AND rule_category IS NULL", (LANGS,)).fetchall(),
+            columns=SAMPLE_KEYS)
+    if keys.empty:
+        print("No notes for the sample")
+        return
+    picked = stratified_sample(keys, SAMPLE_SIZE, ["lang", "app"])
+    ids = [int(x) for x in picked["note_id"]]
+    sample = read_sample_texts(ids).drop_duplicates("note_id")
+    sample = sample.set_index("note_id").reindex(ids).dropna(subset=["text"]).reset_index()
+    sample = sample.assign(category="", theme="", claude_category="",
+                           claude_theme=sample["theme_auto"].fillna(""))
+    path = f"{OUTPUT_DIR}/sample_{stamp}.csv"
+    sample[LABEL_CSV_COLUMNS].to_csv(path, index=False, encoding="utf-8-sig")
+    print(f"Wrote {path} ({len(sample)} rows)")
+    print("Sample by lang/app:")
+    print(sample.groupby(["lang", "app"]).size().to_string())
+
+
 def read_sample_texts(ids: list[int]) -> pd.DataFrame:
     """Read the full rows for the sampled notes."""
     with psycopg.connect() as conn:
@@ -221,8 +329,10 @@ def read_sample_texts(ids: list[int]) -> pd.DataFrame:
             JOIN ml.note_lang l ON l.note_id = p.note_id
             JOIN notes n ON n.note_id = p.note_id
             JOIN note_comments nc ON nc.note_id = p.note_id AND nc.event = 'opened'
-            JOIN note_comments_text t
-              ON t.note_id = nc.note_id AND t.sequence_action = nc.sequence_action
+            JOIN LATERAL (
+              SELECT x.body FROM note_comments_text x
+              WHERE x.note_id = nc.note_id AND x.sequence_action = nc.sequence_action
+              LIMIT 1) t ON true
             LEFT JOIN countries c ON c.country_id = n.id_country""", (ids,)).fetchall()
     cols = ["note_id", "lang", "app", "template", "poi_type", "theme_auto", "country",
             "text", "user_text"]
@@ -230,85 +340,20 @@ def read_sample_texts(ids: list[int]) -> pd.DataFrame:
 
 
 def main() -> None:
-    print(f"Languages: {LANGS} | sample size: {SAMPLE_SIZE}")
+    force, export = "--force" in sys.argv, "--export" in sys.argv
+    print(f"Languages: {LANGS} | sample size: {SAMPLE_SIZE} | version {EXTRACT_VERSION} | "
+          f"{'FORCE: recompute all notes' if force else 'only missing or outdated notes'}")
     setup_schema()
     model = fasttext.load_model("/models/lid.176.ftz")
     stamp = dt.date.today().strftime("%Y%m%d")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    full_path = f"{OUTPUT_DIR}/notes_{stamp}.csv.gz"
 
-    total = 0
-    lang_counts: dict[str, int] = {}
-    template_counts: dict[str, int] = {}
-    kept = []
-    # Server-side cursor: read in chunks so the whole planet does not sit in memory.
-    # A second connection writes a new table, ml.note_lang_new, which replaces
-    # ml.note_lang at the end in one short transaction. The labeler keeps
-    # working during the run, and if the run fails the old data stays.
-    with psycopg.connect() as conn, psycopg.connect() as wconn, \
-            conn.cursor(name="notes_cursor") as cur:
-        wconn.execute("DROP TABLE IF EXISTS ml.note_lang_new")
-        wconn.execute("CREATE TABLE ml.note_lang_new (LIKE ml.note_lang INCLUDING DEFAULTS)")
-        cur.itersize = CHUNK_SIZE
-        cur.execute(QUERY)
-        first = True
-        while rows := cur.fetchmany(CHUNK_SIZE):
-            df = add_features(pd.DataFrame(rows, columns=COLUMNS), model)
-            total += len(df)
-            with wconn.cursor().copy(
-                    "COPY ml.note_lang_new (" + ", ".join(LANG_COLUMNS) + ") FROM STDIN") as copy:
-                for row in lang_rows(df):
-                    copy.write_row(row)
-            for lang, count in df["lang"].value_counts().items():
-                lang_counts[lang] = lang_counts.get(lang, 0) + int(count)
-            for tpl, count in df["template"].fillna("none").value_counts().items():
-                template_counts[tpl] = template_counts.get(tpl, 0) + int(count)
-            df = df[df["lang"].isin(LANGS)]
-            df[OUT_COLUMNS].to_csv(full_path, mode="w" if first else "a", header=first,
-                                   index=False, compression="gzip")
-            first = False
-            # Notes labeled by rule are not part of the sample.
-            kept.append(df[df["rule_category"].isna()][SAMPLE_KEYS])
-            print(f"  read {total:,} notes, kept {sum(len(k) for k in kept):,}", flush=True)
-        print("Building indexes and swapping ml.note_lang", flush=True)
-        wconn.execute("ALTER TABLE ml.note_lang_new ADD CONSTRAINT note_lang_new_pkey "
-                      "PRIMARY KEY (note_id)")
-        wconn.execute("CREATE INDEX note_lang_new_lang_rnd ON ml.note_lang_new (lang, rnd)")
-        wconn.commit()
-        # Short swap. Notes added meanwhile by lang-updater are picked up again
-        # on its next cycle.
-        wconn.execute("SET lock_timeout = '60s'")
-        wconn.execute("DROP TABLE ml.note_lang")
-        wconn.execute("ALTER TABLE ml.note_lang_new RENAME TO note_lang")
-        wconn.execute("ALTER INDEX ml.note_lang_new_pkey RENAME TO note_lang_pkey")
-        wconn.execute("ALTER INDEX ml.note_lang_new_lang_rnd RENAME TO note_lang_lang_rnd")
-        wconn.execute("GRANT SELECT ON ml.note_lang TO labeler")
-        wconn.commit()
-    print(f"ml.note_lang: {total:,} notes")
-
-    if total == 0:
-        raise SystemExit("No notes found. Has the ingestion finished?")
-
-    print("Notes by language (top 10):")
-    for lang, count in sorted(lang_counts.items(), key=lambda x: -x[1])[:10]:
-        print(f"  {lang:5} {count:>10,}")
-    print("Notes by app template:")
-    for tpl, count in sorted(template_counts.items(), key=lambda x: -x[1]):
-        print(f"  {tpl:15} {count:>10,}")
-
-    keys = pd.concat(kept, ignore_index=True)
-    print(f"Notes in {LANGS}: {len(keys):,} -> {full_path}")
-
-    picked = stratified_sample(keys, SAMPLE_SIZE, ["lang", "app"])
-    sample = read_sample_texts([int(x) for x in picked["note_id"]])
-    sample = sample.set_index("note_id").loc[[int(x) for x in picked["note_id"]]].reset_index()
-    sample = sample.assign(category="", theme="", claude_category="",
-                           claude_theme=sample["theme_auto"].fillna(""))
-    sample_path = f"{OUTPUT_DIR}/sample_{stamp}.csv"
-    sample[LABEL_CSV_COLUMNS].to_csv(sample_path, index=False, encoding="utf-8-sig")
-    print(f"Wrote {sample_path} ({len(sample)} rows)")
-    print("Sample by lang/app:")
-    print(sample.groupby(["lang", "app"]).size().to_string())
+    done = process_all(model, force)
+    print(f"Processed {done:,} notes in this run")
+    print_summary()
+    if export:
+        export_csv(f"{OUTPUT_DIR}/notes_{stamp}.csv.gz")
+    write_sample(stamp)
 
 
 if __name__ == "__main__":

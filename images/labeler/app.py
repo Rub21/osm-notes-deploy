@@ -72,8 +72,10 @@ FROM unnest(%(ids)s::int[]) WITH ORDINALITY AS p(note_id, ord)
 JOIN ml.note_lang nl ON nl.note_id = p.note_id
 JOIN notes n ON n.note_id = p.note_id
 JOIN note_comments nc ON nc.note_id = p.note_id AND nc.event = 'opened'
-JOIN note_comments_text t
-  ON t.note_id = nc.note_id AND t.sequence_action = nc.sequence_action
+JOIN LATERAL (
+  SELECT x.body FROM note_comments_text x
+  WHERE x.note_id = nc.note_id AND x.sequence_action = nc.sequence_action
+  LIMIT 1) t ON true
 LEFT JOIN countries c ON c.country_id = n.id_country
 ORDER BY p.ord
 """

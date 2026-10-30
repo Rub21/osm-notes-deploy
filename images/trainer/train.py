@@ -38,8 +38,10 @@ SELECT x.note_id, x.category, x.theme, x.claude_category, x.claude_theme, x.user
 FROM ml.note_labels x
 JOIN ml.note_lang l ON l.note_id = x.note_id
 JOIN note_comments nc ON nc.note_id = x.note_id AND nc.event = 'opened'
-JOIN note_comments_text t
-  ON t.note_id = nc.note_id AND t.sequence_action = nc.sequence_action
+JOIN LATERAL (
+  SELECT x.body FROM note_comments_text x
+  WHERE x.note_id = nc.note_id AND x.sequence_action = nc.sequence_action
+  LIMIT 1) t ON true
 """
 
 # Notes labeled by rule (e.g. template-only "place has gone"). A few of them
