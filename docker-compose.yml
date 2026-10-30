@@ -91,6 +91,29 @@ services:
       - ./output:/output
       - ./sql:/sql:ro
 
+  # One-off: train and evaluate the classifier from ml.note_labels.
+  #   docker compose run --rm trainer                 (category)
+  #   docker compose run --rm trainer --target theme  (theme)
+  # Writes output/run_<date>_<target>/ (report.md, metrics.json, errors.csv, model/).
+  trainer:
+    build: ./images/trainer
+    image: osm-notes/trainer:latest
+    profiles: ["tools"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGPORT: 5432
+      PGUSER: ${DB_USER}
+      PGPASSWORD: ${DB_PASSWORD}
+      PGDATABASE: ${DBNAME}
+      BASE_MODEL: ${TRAIN_BASE_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
+      TRAIN_LANGS: ${TRAIN_LANGS:-es,en,und}
+    volumes:
+      - ./output:/output
+      - hf_cache:/cache
+
   # Keeps ml.note_lang up to date: detects the language of new notes
   # every WATCH_INTERVAL seconds. Same image as the extractor.
   lang-updater:
@@ -153,3 +176,4 @@ volumes:
   ingestion_data:
   ingestion_logs:
   ingestion_tmp:
+  hf_cache:
