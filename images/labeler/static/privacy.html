@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacidad · Libreta de notas OSM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper: #f3efe4; --ink: #1f2420; --ink-soft: #5c6157; --rule: rgba(31, 36, 32, .18);
+  --grid: rgba(31, 36, 32, .055); --mark: #e2591b; --card: #fbf9f3;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #171a17; --ink: #e9e5d8; --ink-soft: #9ea296; --rule: rgba(233, 229, 216, .16);
+    --grid: rgba(233, 229, 216, .045); --mark: #ff7a3d; --card: #1d211d;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; color: var(--ink); background-color: var(--paper);
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 28px 28px;
+  font: 14px/1.65 "JetBrains Mono", ui-monospace, monospace;
+}
+.wrap { max-width: 760px; margin: 0 auto; padding: 24px 16px 60px; }
+a { color: inherit; }
+small.kicker { color: var(--mark); letter-spacing: .14em; text-transform: uppercase; font-size: 11px; }
+h1 { font: 600 30px/1.1 Fraunces, Georgia, serif; margin: 4px 0 6px; }
+h2 { font: 600 20px/1.2 Fraunces, Georgia, serif; margin: 30px 0 8px; }
+.meta { color: var(--ink-soft); border-bottom: 2px solid var(--ink); padding-bottom: 14px; }
+.lang-switch { margin-top: 10px; }
+section.lang { background: var(--card); border: 1px solid var(--rule); border-radius: 3px; padding: 6px 22px 18px; margin-top: 22px; }
+ul { padding-left: 20px; }
+li { margin: 4px 0; }
+code { font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <small class="kicker">OpenStreetMap · notas</small>
+  <h1>Privacidad / Privacy</h1>
+  <div class="meta">
+    Libreta de etiquetado de notas OSM · actualizado 2026-10-29
+    <div class="lang-switch"><a href="#es">Español</a> · <a href="#en">English</a> · <a href="/">← volver / back</a></div>
+  </div>
+
+  <section class="lang" id="es">
+    <h2>Qué es este sitio</h2>
+    <p>Un proyecto independiente para etiquetar notas de OpenStreetMap y entrenar un
+    clasificador automático. No es un servicio de la OpenStreetMap Foundation (OSMF).</p>
+
+    <h2>Qué datos guardamos</h2>
+    <ul>
+      <li><b>Al entrar con OSM:</b> tu id y nombre de usuario de OSM y la URL de tu foto de perfil.
+      Pedimos solo el permiso <code>read_prefs</code> (leer tu perfil). No podemos editar el mapa
+      ni ver tu correo. No guardamos el token de acceso de OSM.</li>
+      <li><b>Tus etiquetas:</b> la nota, la categoría que elegiste, tu usuario de OSM y la fecha.</li>
+      <li><b>Cookie de sesión:</b> una sola cookie (<code>labeler_session</code>), firmada, para
+      mantenerte conectado hasta 30 días. No usamos cookies de publicidad ni analítica.</li>
+      <li><b>Registros técnicos:</b> el servidor y Cloudflare (que protege el sitio) pueden
+      registrar tu IP y navegador por seguridad, por un tiempo limitado.</li>
+    </ul>
+
+    <h2>Para qué los usamos</h2>
+    <ul>
+      <li>Saber quién etiquetó cada nota, medir el acuerdo entre personas y mostrar el avance.</li>
+      <li>Entrenar y evaluar el clasificador de notas.</li>
+    </ul>
+
+    <h2>Qué se publica</h2>
+    <p>Las etiquetas pueden publicarse como conjunto de datos abierto para la comunidad OSM.
+    En ese caso tu usuario de OSM se reemplaza por un identificador anónimo. El texto de las
+    notas viene de OpenStreetMap y está bajo la licencia
+    <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">ODbL</a>.</p>
+
+    <h2>Con quién se comparten</h2>
+    <p>No vendemos ni compartimos tus datos. Proveedores técnicos: Hetzner (servidor, Alemania)
+    y Cloudflare (red y acceso).</p>
+
+    <h2>Tus derechos</h2>
+    <p>Puedes pedir ver, corregir o borrar tus etiquetas y datos en cualquier momento.
+    Para cerrar sesión usa “salir”. Para revocar el acceso de esta app, entra a
+    <a href="https://www.openstreetmap.org/oauth2/authorized_applications" target="_blank" rel="noopener">OSM → Mis ajustes → Aplicaciones autorizadas</a>.</p>
+
+    <h2>Contacto</h2>
+    <p>Escríbenos a <a href="https://www.openstreetmap.org/user/Rub21" target="_blank" rel="noopener">Rub21 en OpenStreetMap</a>
+    (mensaje privado).</p>
+  </section>
+
+  <section class="lang" id="en" lang="en">
+    <h2>What this site is</h2>
+    <p>An independent project to label OpenStreetMap notes and train an automatic
+    classifier. It is not a service of the OpenStreetMap Foundation (OSMF).</p>
+
+    <h2>What we store</h2>
+    <ul>
+      <li><b>When you log in with OSM:</b> your OSM user id, display name and profile picture URL.
+      We only ask for the <code>read_prefs</code> permission (read your profile). We cannot edit
+      the map or see your email. We do not keep your OSM access token.</li>
+      <li><b>Your labels:</b> the note, the category you chose, your OSM username and the date.</li>
+      <li><b>Session cookie:</b> one signed cookie (<code>labeler_session</code>) that keeps you
+      logged in for up to 30 days. No advertising or analytics cookies.</li>
+      <li><b>Technical logs:</b> the server and Cloudflare (which protects the site) may log your
+      IP address and browser for security, for a limited time.</li>
+    </ul>
+
+    <h2>How we use it</h2>
+    <ul>
+      <li>To know who labeled each note, measure agreement between people and show progress.</li>
+      <li>To train and evaluate the note classifier.</li>
+    </ul>
+
+    <h2>What is published</h2>
+    <p>Labels may be published as an open dataset for the OSM community. If so, your OSM
+    username is replaced with an anonymous id. Note text comes from OpenStreetMap and is under the
+    <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">ODbL</a> license.</p>
+
+    <h2>Who we share it with</h2>
+    <p>We do not sell or share your data. Technical providers: Hetzner (server, Germany) and
+    Cloudflare (network and access).</p>
+
+    <h2>Your rights</h2>
+    <p>You can ask to see, fix or delete your labels and data at any time. Use “salir” to log out.
+    To revoke this app's access, go to
+    <a href="https://www.openstreetmap.org/oauth2/authorized_applications" target="_blank" rel="noopener">OSM → My Settings → Authorized applications</a>.</p>
+
+    <h2>Contact</h2>
+    <p>Send a private message to <a href="https://www.openstreetmap.org/user/Rub21" target="_blank" rel="noopener">Rub21 on OpenStreetMap</a>.</p>
+  </section>
+</div>
+</body>
+</html>

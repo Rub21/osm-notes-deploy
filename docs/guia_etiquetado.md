@@ -30,7 +30,7 @@ pre-etiqueta el CSV. Las categorías viven en `sql/ml_schema.sql`
 |---|---|---|
 | `spam` | Spam / publicidad | Promociona un negocio o servicio, o tiene enlaces sin relación con el mapa. |
 | `empty` | Vacía o sin sentido | No dice nada que se pueda entender ni verificar: vacía, saludos, pruebas, letras al azar. |
-| `personal_data` | Datos personales | Tiene datos de una persona privada: casa de alguien, teléfono, correo o nombre completo. |
+| `personal_data` | Privacidad / datos personales | Revela dónde vive o qué hace una persona privada, o sus datos: "esta es mi casa", "aquí vive mi amigo", nombre completo, teléfono, correo, placa. La nota se oculta. |
 | `not_mappable` | Opinión o no mapeable | Opiniones, quejas, preguntas o información que no va en OSM: seguridad, calidad, precios, tráfico del momento. |
 
 ### Dudas
@@ -43,6 +43,10 @@ pre-etiqueta el CSV. Las categorías viven en `sql/ml_schema.sql`
 
 1. **`personal_data` gana siempre.** "Mi casa es la azul, llamar al
    987654321" → `personal_data`, aunque también pida agregar algo.
+   Basta con que diga dónde vive alguien ("esta es mi casa", "aquí vive
+   mi amigo", "la casa de la señora Rosa"), aunque no tenga teléfono ni
+   apellido. No aplica a negocios ni a lugares públicos ("mi colegio",
+   "la tienda de mi tío" con su nombre comercial → la categoría normal).
 2. **Lugar vs. calle.** Negocios, edificios, parques y puntos de interés →
    `missing_place` o `place_changed`. Vías de cualquier tipo, incluidos los
    senderos que faltan → `wrong_road`.
@@ -61,6 +65,9 @@ pre-etiqueta el CSV. Las categorías viven en `sql/ml_schema.sql`
    `other_data`.
 7. **Notas de apps** (StreetComplete, Organic Maps…). Ignora la firma de la
    app y clasifica el pedido. Si solo queda la firma → `empty`.
+   En los "Unable to answer…" de StreetComplete clasifica el comentario
+   de la persona: si solo dice que la pregunta no aplica o no pudo
+   verificarlo → `not_mappable`.
 8. **Varios pedidos en una nota.** Usa el primero o el principal. Si son
    igual de importantes → `unsure`.
 9. **Otro idioma o texto que no entiendes** → `unsure`.
@@ -83,6 +90,8 @@ pre-etiqueta el CSV. Las categorías viven en `sql/ml_schema.sql`
 | ok | `empty` |
 | asdfgh | `empty` |
 | Casa de mi abuela María López | `personal_data` |
+| Esta es mi casa | `personal_data` |
+| My friend lives here, blue door | `personal_data` |
 | Zona peligrosa de noche | `not_mappable` |
 | Muy buen servicio, recomendado | `not_mappable` |
 | Revisar | `unsure` |

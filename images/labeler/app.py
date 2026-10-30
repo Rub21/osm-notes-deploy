@@ -179,6 +179,11 @@ def index():
     return FileResponse("/app/static/index.html")
 
 
+@app.get("/privacy")
+def privacy():
+    return FileResponse("/app/static/privacy.html")
+
+
 @app.get("/api/categories")
 def get_categories():
     return list(categories().values())
