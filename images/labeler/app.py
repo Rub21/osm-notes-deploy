@@ -1,6 +1,7 @@
 """Labeling API for OSM notes.
 
 - GET  /api/categories            fixed label set (ml.categories)
+- GET  /api/themes                second label axis: what the note is about
 - GET  /api/langs                 languages with note and label counts
 - GET  /api/batch?lang=&size=     random unlabeled notes in a language (JSON)
 - GET  /api/batch.csv?lang=&size= same batch as CSV to label offline
@@ -18,8 +19,9 @@ is saved with the OSM username. Without it (local dev) the page sends a
 free-text user name.
 
 CSV format (export and import):
-  note_id,lang,country,app,text,category,claude_category
-Only note_id and category are required on import. Blank category = skipped.
+  note_id,lang,country,app,template,user_text,text,category,theme,claude_category,claude_theme
+Only note_id and category are required on import. A row with only
+claude_category goes to the review queue. theme / claude_theme are optional.
 """
 
 import base64
@@ -50,7 +52,8 @@ PUBLIC_URL = os.environ.get("PUBLIC_URL", "http://localhost:8090").rstrip("/")
 SESSION_SECRET = os.environ.get("SESSION_SECRET") or secrets.token_urlsafe(32)
 OSM_LOGIN = bool(OSM_CLIENT_ID)
 MAX_BATCH = 1000
-CSV_COLUMNS = ["note_id", "lang", "country", "app", "text", "category", "claude_category"]
+CSV_COLUMNS = ["note_id", "lang", "country", "app", "template", "user_text", "text",
+               "category", "theme", "claude_category", "claude_theme"]
 USER_RE = re.compile(r"^[\w .@-]{2,40}$")
 
 # Uses PGHOST, PGUSER (labeler), PGPASSWORD, PGDATABASE.
@@ -61,10 +64,10 @@ app.add_middleware(
     max_age=30 * 24 * 3600, same_site="lax", https_only=PUBLIC_URL.startswith("https"))
 
 NOTES_SQL = """
-SELECT nl.note_id, nl.lang, nl.app,
+SELECT nl.note_id, nl.lang, nl.app, nl.template, nl.poi_type, nl.theme_auto,
        COALESCE(c.country_name_en, c.country_name, 'Unknown') AS country,
        n.created_at, n.status, n.latitude AS lat, n.longitude AS lon,
-       t.body AS text
+       t.body AS text, COALESCE(nl.user_text, t.body) AS user_text
 FROM unnest(%(ids)s::int[]) WITH ORDINALITY AS p(note_id, ord)
 JOIN ml.note_lang nl ON nl.note_id = p.note_id
 JOIN notes n ON n.note_id = p.note_id
@@ -78,6 +81,7 @@ ORDER BY p.ord
 PICK_SQL = """
 SELECT l.note_id FROM ml.note_lang l
 WHERE l.lang = %(lang)s AND l.rnd {op} %(r)s
+  AND l.rule_category IS NULL
   AND NOT EXISTS (SELECT 1 FROM ml.note_labels x WHERE x.note_id = l.note_id)
 ORDER BY l.rnd {order}
 LIMIT %(n)s
@@ -160,6 +164,14 @@ def categories() -> dict[str, dict]:
     return {r["code"]: r for r in rows}
 
 
+def themes() -> dict[str, dict]:
+    with pool.connection() as conn:
+        rows = conn.execute(
+            "SELECT code, name_es, name_en, tags, sort FROM ml.themes "
+            "WHERE active ORDER BY sort").fetchall()
+    return {r["code"]: r for r in rows}
+
+
 def pick_batch(lang: str, size: int) -> list[dict]:
     """Random unlabeled notes. Random start point + index on (lang, rnd);
     wraps around if the tail is short. Different labelers rarely collide."""
@@ -189,6 +201,11 @@ def privacy():
 @app.get("/api/categories")
 def get_categories():
     return list(categories().values())
+
+
+@app.get("/api/themes")
+def get_themes():
+    return list(themes().values())
 
 
 _langs_cache: dict = {"at": 0.0, "data": None}
@@ -221,7 +238,8 @@ def get_batch_csv(lang: str = Query(..., max_length=8),
     w = csv.DictWriter(buf, fieldnames=CSV_COLUMNS, extrasaction="ignore")
     w.writeheader()
     for r in rows:
-        w.writerow({**r, "category": "", "claude_category": ""})
+        w.writerow({**r, "category": "", "theme": "", "claude_category": "",
+                    "claude_theme": r.get("theme_auto") or ""})
     name = f"notes_{lang}_{time.strftime('%Y%m%d_%H%M')}.csv"
     # utf-8-sig so Excel opens accents correctly.
     return StreamingResponse(
@@ -232,7 +250,9 @@ def get_batch_csv(lang: str = Query(..., max_length=8),
 class Label(BaseModel):
     note_id: int
     category: str
+    theme: str | None = None
     claude_category: str | None = None
+    claude_theme: str | None = None
 
 
 class LabelsIn(BaseModel):
@@ -240,7 +260,7 @@ class LabelsIn(BaseModel):
     labels: list[Label]
 
 
-def save_suggestions(user: str, items: list[tuple[int, str]]) -> int:
+def save_suggestions(user: str, items: list[tuple[int, str, str | None]]) -> int:
     """Store AI suggestions to review later. A new upload replaces the old one."""
     if not items:
         return 0
@@ -250,17 +270,18 @@ def save_suggestions(user: str, items: list[tuple[int, str]]) -> int:
             ([i[0] for i in items],))}
         with conn.cursor() as cur:
             cur.executemany("""
-                INSERT INTO ml.note_suggestions (note_id, lang, category, imported_by)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO ml.note_suggestions (note_id, lang, category, theme, imported_by)
+                VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (note_id) DO UPDATE
-                SET category = EXCLUDED.category, imported_by = EXCLUDED.imported_by,
-                    created_at = now()""",
-                [(nid, langs.get(nid), cat, user) for nid, cat in items])
+                SET category = EXCLUDED.category, theme = EXCLUDED.theme,
+                    imported_by = EXCLUDED.imported_by, created_at = now()""",
+                [(nid, langs.get(nid), cat, th, user) for nid, cat, th in items])
     return len(items)
 
 
-def save_labels(user: str, items: list[tuple[int, str, str | None]]) -> dict:
-    """Upsert (note_id, user). Returns counts. Items already validated."""
+def save_labels(user: str, items: list[tuple]) -> dict:
+    """Upsert (note_id, user). Items already validated:
+    (note_id, category, claude_category, theme, claude_theme)."""
     if not items:
         return {"saved": 0}
     with pool.connection() as conn:
@@ -269,26 +290,34 @@ def save_labels(user: str, items: list[tuple[int, str, str | None]]) -> dict:
             ([i[0] for i in items],))}
         with conn.cursor() as cur:
             cur.executemany("""
-                INSERT INTO ml.note_labels (note_id, lang, category, claude_category, user_name)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO ml.note_labels (note_id, lang, category, claude_category,
+                                            theme, claude_theme, user_name)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (note_id, user_name) DO UPDATE
                 SET category = EXCLUDED.category,
+                    theme = COALESCE(EXCLUDED.theme, ml.note_labels.theme),
                     claude_category = COALESCE(EXCLUDED.claude_category,
                                                ml.note_labels.claude_category),
+                    claude_theme = COALESCE(EXCLUDED.claude_theme,
+                                            ml.note_labels.claude_theme),
                     updated_at = now()""",
-                [(nid, langs.get(nid), cat, cc, user) for nid, cat, cc in items])
+                [(nid, langs.get(nid), cat, cc, th, cth, user)
+                 for nid, cat, cc, th, cth in items])
     return {"saved": len(items)}
 
 
 @app.post("/api/labels")
 def post_labels(body: LabelsIn, request: Request):
     user = current_user(request, body.user)
-    cats = categories()
+    cats, ths = categories(), themes()
     items = []
     for lb in body.labels:
         if lb.category not in cats:
             raise HTTPException(400, f"Categoría desconocida: {lb.category}")
-        items.append((lb.note_id, lb.category, lb.claude_category or None))
+        if lb.theme and lb.theme not in ths:
+            raise HTTPException(400, f"Tema desconocido: {lb.theme}")
+        items.append((lb.note_id, lb.category, lb.claude_category or None,
+                      lb.theme or None, lb.claude_theme or None))
     return save_labels(user, items)
 
 
@@ -317,10 +346,12 @@ async def import_csv(request: Request, file: UploadFile = File(...),
     if len(raw) > 20_000_000:
         raise HTTPException(400, "Archivo muy grande (máx. 20 MB)")
     rows = read_csv(raw)
-    cats = categories()
-    # Also accept the category name in Spanish/English, not only the code.
+    cats, ths = categories(), themes()
+    # Also accept the category / theme name in Spanish/English, not only the code.
     by_name = {c["name_es"].lower(): k for k, c in cats.items()}
     by_name.update({c["name_en"].lower(): k for k, c in cats.items()})
+    theme_by_name = {t["name_es"].lower(): k for k, t in ths.items()}
+    theme_by_name.update({t["name_en"].lower(): k for k, t in ths.items()})
 
     ids = [int(r["note_id"]) for r in rows if r.get("note_id", "").isdigit()]
     with pool.connection() as conn:
@@ -331,10 +362,15 @@ async def import_csv(request: Request, file: UploadFile = File(...),
         value = value.lower()
         return (value if value in cats else by_name.get(value, value)) if value else None
 
+    def theme_code(value: str) -> str | None:
+        value = value.lower()
+        return (value if value in ths else theme_by_name.get(value, value)) if value else None
+
     items, suggestions, errors, skipped = [], [], [], 0
     for line, r in enumerate(rows, start=2):  # line 1 is the header
         nid = r.get("note_id", "")
         cat, cc = code(r.get("category", "")), code(r.get("claude_category", ""))
+        th, cth = theme_code(r.get("theme", "")), theme_code(r.get("claude_theme", ""))
         if not cat and not cc:
             skipped += 1
             continue
@@ -347,10 +383,13 @@ async def import_csv(request: Request, file: UploadFile = File(...),
         elif cc and cc not in cats:
             errors.append({"line": line, "note_id": nid,
                            "error": f"claude_category desconocida: {cc}"})
+        elif (th and th not in ths) or (cth and cth not in ths):
+            errors.append({"line": line, "note_id": nid,
+                           "error": f"tema desconocido: {th if th and th not in ths else cth}"})
         elif cat:
-            items.append((int(nid), cat, cc))
+            items.append((int(nid), cat, cc, th, cth))
         else:  # only the AI suggestion: goes to the review queue
-            suggestions.append((int(nid), cc))
+            suggestions.append((int(nid), cc, cth))
     result = save_labels(user, items)
     suggested = save_suggestions(user, suggestions)
     return {"rows": len(rows), "saved": result["saved"], "suggested": suggested,
@@ -358,7 +397,7 @@ async def import_csv(request: Request, file: UploadFile = File(...),
 
 
 REVIEW_SQL = """
-SELECT s.note_id, s.category AS suggestion
+SELECT s.note_id, s.category AS suggestion, s.theme AS suggestion_theme
 FROM ml.note_suggestions s
 WHERE (%(lang)s = '' OR s.lang = %(lang)s)
   AND NOT EXISTS (SELECT 1 FROM ml.note_labels x WHERE x.note_id = s.note_id)
@@ -379,10 +418,13 @@ def review(lang: str = Query("", max_length=8), size: int = Query(25, ge=1, le=2
     args = {"lang": lang, "n": size}
     with pool.connection() as conn:
         pending = conn.execute(REVIEW_COUNT_SQL, args).fetchone()["n"]
-        sugg = {r["note_id"]: r["suggestion"] for r in conn.execute(REVIEW_SQL, args)}
+        sugg = {r["note_id"]: r for r in conn.execute(REVIEW_SQL, args)}
         notes = conn.execute(NOTES_SQL, {"ids": list(sugg)}).fetchall() if sugg else []
+    # Theme: the AI suggestion, or the one guessed from the app template.
     return {"pending": pending,
-            "notes": [{**n, "suggestion": sugg[n["note_id"]]} for n in notes]}
+            "notes": [{**n, "suggestion": sugg[n["note_id"]]["suggestion"],
+                       "suggestion_theme": sugg[n["note_id"]]["suggestion_theme"]
+                       or n["theme_auto"]} for n in notes]}
 
 
 @app.get("/api/stats")
@@ -394,11 +436,14 @@ def stats():
         by_cat = conn.execute("""
             SELECT lang, category, count(*) AS labels
             FROM ml.note_labels GROUP BY 1, 2 ORDER BY 1, 3 DESC""").fetchall()
+        by_theme = conn.execute("""
+            SELECT COALESCE(theme, '') AS theme, count(*) AS labels
+            FROM ml.note_labels GROUP BY 1 ORDER BY 2 DESC""").fetchall()
         claude = conn.execute("""
             SELECT count(*) FILTER (WHERE claude_category IS NOT NULL) AS with_claude,
                    count(*) FILTER (WHERE claude_category = category) AS claude_right
             FROM ml.note_labels""").fetchone()
-    return {"by_user": by_user, "by_category": by_cat, "claude": claude}
+    return {"by_user": by_user, "by_category": by_cat, "by_theme": by_theme, "claude": claude}
 
 
 @app.get("/api/labels.csv")
@@ -410,16 +455,18 @@ def labels_csv(request: Request):
             "SELECT DISTINCT note_id FROM ml.note_labels")]
         texts = {r["note_id"]: r for r in conn.execute(NOTES_SQL, {"ids": ids})} if ids else {}
         labels = conn.execute("""
-            SELECT note_id, lang, category, claude_category, user_name, updated_at
+            SELECT note_id, lang, category, theme, claude_category, claude_theme,
+                   user_name, updated_at
             FROM ml.note_labels ORDER BY note_id, user_name""").fetchall()
     buf = io.StringIO()
-    cols = ["note_id", "lang", "country", "app", "text", "category", "claude_category",
-            "user_name", "updated_at"]
+    cols = ["note_id", "lang", "country", "app", "template", "poi_type", "user_text", "text",
+            "category", "theme", "claude_category", "claude_theme", "user_name", "updated_at"]
     w = csv.DictWriter(buf, fieldnames=cols, extrasaction="ignore")
     w.writeheader()
     for lb in labels:
         t = texts.get(lb["note_id"], {})
-        w.writerow({**lb, "country": t.get("country"), "app": t.get("app"), "text": t.get("text")})
+        w.writerow({**lb, **{k: t.get(k) for k in
+                             ("country", "app", "template", "poi_type", "user_text", "text")}})
     return StreamingResponse(
         iter([buf.getvalue().encode("utf-8-sig")]), media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="labels.csv"'})

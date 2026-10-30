@@ -1,13 +1,21 @@
 # Guía de etiquetado de notas OSM
 
 Esta guía la usan las personas que etiquetan y también Claude cuando
-pre-etiqueta el CSV. Las categorías viven en `sql/ml_schema.sql`
-(tabla `ml.categories`). Si cambias una categoría, cambia los dos archivos.
+pre-etiqueta el CSV. Las categorías y los temas viven en `sql/ml_schema.sql`
+(tablas `ml.categories` y `ml.themes`). Si cambias uno, cambia los dos archivos.
+
+Cada nota lleva **dos etiquetas**:
+
+- **Categoría**: qué hay que hacer (lugar faltante, spam, privacidad…).
+- **Tema**: de qué trata (salud, transporte, comida…). Muchas veces ya viene
+  sugerido desde el tipo de POI de la app; cámbialo solo si está mal.
 
 ## Cómo etiquetar
 
 1. Lee **solo el texto con que se abrió la nota**. No uses los comentarios
-   de después ni si la nota está cerrada.
+   de después ni si la nota está cerrada. Si la nota trae una plantilla de
+   app, lee lo que escribió la persona (texto grande en la página, columna
+   `user_text` en el CSV). La plantilla aparece aparte, en gris.
 2. Pregúntate: **¿qué pide cambiar en el mapa quien abrió la nota?**
 3. Elige **una sola** categoría. Si dudas entre dos, usa `unsure`.
 4. No busques en el mapa ni en internet. Se etiqueta lo que dice el texto.
@@ -65,12 +73,35 @@ pre-etiqueta el CSV. Las categorías viven en `sql/ml_schema.sql`
    `other_data`.
 7. **Notas de apps** (StreetComplete, Organic Maps…). Ignora la firma de la
    app y clasifica el pedido. Si solo queda la firma → `empty`.
+   Las notas "The place has gone or never existed" de MAPS.ME, Organic Maps
+   y CoMaps sin texto de la persona se etiquetan solas como
+   `place_changed` y no aparecen para etiquetar. Si la persona escribió
+   algo, clasifica eso: "ya cerró" → `place_changed`, "esta es mi casa" →
+   `personal_data`.
    En los "Unable to answer…" de StreetComplete clasifica el comentario
    de la persona: si solo dice que la pregunta no aplica o no pudo
    verificarlo → `not_mappable`.
 8. **Varios pedidos en una nota.** Usa el primero o el principal. Si son
    igual de importantes → `unsure`.
 9. **Otro idioma o texto que no entiendes** → `unsure`.
+
+## Temas
+
+| Código | Tema | Tags de OSM |
+|---|---|---|
+| `food` | Comida y bebida | `amenity=restaurant/cafe/bar/fast_food` |
+| `shop` | Tiendas | `shop=*` |
+| `health` | Salud | `amenity=pharmacy/hospital/clinic/doctors` |
+| `education` | Educación | `amenity=school/university/kindergarten` |
+| `transport` | Transporte público | `highway=bus_stop`, `railway=*`, `public_transport=*` |
+| `roads` | Calles y caminos | `highway=*` (vías), `barrier=*`, estacionamientos |
+| `buildings` | Edificios y direcciones | `building=*`, `addr:*`, entradas |
+| `leisure` | Turismo y ocio | `tourism=*`, `leisure=*`, `historic=*` |
+| `nature` | Naturaleza y agua | `natural=*`, `landuse=*`, `waterway=*` |
+| `services` | Servicios y otros | otros `amenity=*` (bancos, correo, baños…), `office=*` |
+| `none` | No aplica | spam, vacías, privacidad, opiniones generales |
+
+Si la nota no habla de nada concreto, deja el tema vacío o usa `none`.
 
 ## Ejemplos
 
@@ -99,11 +130,16 @@ pre-etiqueta el CSV. Las categorías viven en `sql/ml_schema.sql`
 ## Formato del CSV
 
 ```
-note_id,lang,country,app,text,category,claude_category
+note_id,lang,country,app,template,user_text,text,category,theme,claude_category,claude_theme
 ```
 
-- Llena `category` con el **código** (por ejemplo `missing_place`) o con el
-  nombre en español o inglés.
+- `user_text` es lo que escribió la persona; `template` dice qué plantilla
+  de app tenía la nota; `text` es el texto completo.
+- Llena `category` y `theme` con el **código** (por ejemplo `missing_place`,
+  `health`) o con el nombre en español o inglés.
+- `claude_theme` viene sugerido desde el tipo de POI cuando la app lo trae.
+- Si llenas solo `claude_category` (y `claude_theme`), la fila va a la
+  pestaña **Revisar** de la página.
 - `claude_category` es la sugerencia de Claude. No la borres: sirve para
   medir en cuántas notas acertó.
 - Si dejas `category` vacía, esa fila no se guarda.

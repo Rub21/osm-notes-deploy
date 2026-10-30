@@ -45,11 +45,26 @@ It writes to `./output`:
 
 - `sample_<date>.csv`: 1000 notes from the whole planet (Spanish, English and
   short/undetected text), spread by language and app, with empty `category`
-  and `action` columns to label.
+  and `theme` columns to label.
 - `notes_<date>.csv.gz`: all notes in those languages.
 
 Only the text that opened the note is used. Closing comments are left out so
 they do not leak the answer. Change `SAMPLE_SIZE` and `LANGS` in `.env`.
+
+About a third of the notes come from apps (MAPS.ME, Organic Maps, CoMaps,
+StreetComplete, OnOSM) with long fixed template text.
+`images/extractor/templates.py` splits it from the words the user wrote.
+`ml.note_lang` stores, for each note:
+
+- `lang`: the language of the user's words only, not the template.
+- `template`, `user_text`, `poi_type`: the app template, the user's words
+  and the OSM type the app reported (e.g. `amenity-pharmacy`).
+- `theme_auto`: a theme guessed from `poi_type`.
+- `rule_category`: set when the label is certain without a person. For
+  example, "place has gone" with no user text becomes `place_changed`.
+  These notes are not sent for labeling.
+
+`lang-updater` keeps all of this up to date for new notes every 5 minutes.
 
 ## Labeling page
 
@@ -63,7 +78,8 @@ in the same DB but in our own `ml` schema (see `sql/ml_schema.sql`).
 3. From your laptop: `ssh -L 8090:127.0.0.1:8090 root@<server>` and open
    http://localhost:8090
 
-Categories are defined in `sql/ml_schema.sql` (re-applied on every extractor
-run) and explained in `docs/guia_etiquetado.md`. Claude only fills
+Each note gets two labels: a category (what to do) and a theme (what it is
+about). Categories and themes are defined in `sql/ml_schema.sql` (re-applied
+on every extractor run) and explained in `docs/guia_etiquetado.md`. Claude only fills
 the CSV; a person reviews it and uploads it. `GET /api/labels.csv` exports
 all labels with the note text for training.

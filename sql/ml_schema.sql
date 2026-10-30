@@ -57,6 +57,32 @@ ON CONFLICT (code) DO UPDATE SET
  name_en = EXCLUDED.name_en, example = EXCLUDED.example, sort = EXCLUDED.sort,
  description = EXCLUDED.description;
 
+-- Second label axis: what the note is about. Fixed list, like categories.
+-- theme_auto comes from the POI type in app templates (MAPS.ME, Organic Maps...).
+CREATE TABLE IF NOT EXISTS ml.themes (
+ code    TEXT PRIMARY KEY,
+ name_es TEXT NOT NULL,
+ name_en TEXT NOT NULL,
+ tags    TEXT,
+ sort    INTEGER NOT NULL,
+ active  BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+INSERT INTO ml.themes (code, name_es, name_en, tags, sort) VALUES
+ ('food',      'Comida y bebida',          'Food and drink',       'amenity=restaurant/cafe/bar/fast_food', 1),
+ ('shop',      'Tiendas',                  'Shops',                'shop=*', 2),
+ ('health',    'Salud',                    'Health',               'amenity=pharmacy/hospital/clinic/doctors', 3),
+ ('education', 'Educación',                'Education',            'amenity=school/university/kindergarten', 4),
+ ('transport', 'Transporte público',       'Public transport',     'highway=bus_stop, railway=*, public_transport=*', 5),
+ ('roads',     'Calles y caminos',         'Roads and paths',      'highway=* (ways), barrier=*, parking', 6),
+ ('buildings', 'Edificios y direcciones',  'Buildings and addresses', 'building=*, addr:*, entrance', 7),
+ ('leisure',   'Turismo y ocio',           'Tourism and leisure',  'tourism=*, leisure=*, historic=*', 8),
+ ('nature',    'Naturaleza y agua',        'Nature and water',     'natural=*, landuse=*, waterway=*', 9),
+ ('services',  'Servicios y otros',        'Services and other',   'amenity=* (banks, post, toilets…), office=*', 10),
+ ('none',      'No aplica',                'Not applicable',       'spam, empty, privacy', 11)
+ON CONFLICT (code) DO UPDATE SET
+ name_es = EXCLUDED.name_es, name_en = EXCLUDED.name_en, tags = EXCLUDED.tags, sort = EXCLUDED.sort;
+
 -- Language of the opening comment of every note (filled by the extractor).
 -- rnd gives cheap random batches without ORDER BY random() over millions of rows.
 CREATE TABLE IF NOT EXISTS ml.note_lang (
@@ -68,6 +94,15 @@ CREATE TABLE IF NOT EXISTS ml.note_lang (
  detected_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS note_lang_lang_rnd ON ml.note_lang (lang, rnd);
+-- App template split (images/extractor/templates.py). user_text is only stored
+-- for notes with a template; for the rest it is the same as the note text.
+ALTER TABLE ml.note_lang ADD COLUMN IF NOT EXISTS template TEXT;
+ALTER TABLE ml.note_lang ADD COLUMN IF NOT EXISTS user_text TEXT;
+ALTER TABLE ml.note_lang ADD COLUMN IF NOT EXISTS poi_type TEXT;
+ALTER TABLE ml.note_lang ADD COLUMN IF NOT EXISTS theme_auto TEXT;
+-- Category set by rule (e.g. template-only "place has gone" -> place_changed).
+-- These notes are not sent to people for labeling.
+ALTER TABLE ml.note_lang ADD COLUMN IF NOT EXISTS rule_category TEXT;
 
 -- Human-reviewed labels only. One row per note and user (re-labeling updates it).
 -- claude_category keeps Claude's suggestion, to measure how often it was right.
@@ -83,6 +118,8 @@ CREATE TABLE IF NOT EXISTS ml.note_labels (
  UNIQUE (note_id, user_name)
 );
 CREATE INDEX IF NOT EXISTS note_labels_note ON ml.note_labels (note_id);
+ALTER TABLE ml.note_labels ADD COLUMN IF NOT EXISTS theme TEXT REFERENCES ml.themes (code);
+ALTER TABLE ml.note_labels ADD COLUMN IF NOT EXISTS claude_theme TEXT;
 
 -- AI suggestions waiting for human review (uploaded CSV with only
 -- claude_category filled). Approving one writes a row in ml.note_labels.
@@ -94,6 +131,7 @@ CREATE TABLE IF NOT EXISTS ml.note_suggestions (
  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS note_suggestions_lang ON ml.note_suggestions (lang);
+ALTER TABLE ml.note_suggestions ADD COLUMN IF NOT EXISTS theme TEXT REFERENCES ml.themes (code);
 
 -- Limited role for the labeling API: reads public, writes only ml.note_labels.
 DO $$
@@ -105,7 +143,7 @@ END
 $$;
 
 GRANT USAGE ON SCHEMA ml TO labeler;
-GRANT SELECT ON ml.categories, ml.note_lang TO labeler;
+GRANT SELECT ON ml.categories, ml.themes, ml.note_lang TO labeler;
 GRANT SELECT, INSERT, UPDATE ON ml.note_labels TO labeler;
 GRANT USAGE ON SEQUENCE ml.note_labels_id_seq TO labeler;
 GRANT SELECT, INSERT, UPDATE ON ml.note_suggestions TO labeler;

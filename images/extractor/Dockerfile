@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir \
 # fastText language ID model (176 languages, compressed version, ~1 MB).
 ADD https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.ftz /models/lid.176.ftz
 
-COPY extract.py /app/extract.py
+COPY extract.py templates.py /app/
 WORKDIR /app
 
 ENTRYPOINT ["python", "/app/extract.py"]

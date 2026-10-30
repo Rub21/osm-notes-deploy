@@ -166,6 +166,16 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
 .empty-state { text-align: center; padding: 50px 20px; color: var(--ink-soft); }
 .empty-state strong { display: block; font: 600 22px Fraunces, Georgia, serif; color: var(--ink); margin-bottom: 6px; }
 
+/* App template */
+.tpl { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; margin-top: 10px; font-size: 11.5px; color: var(--ink-soft); }
+.tpl-tag { border: 1px dashed var(--rule); border-radius: 3px; padding: 1px 7px; }
+.tpl details summary { cursor: pointer; text-decoration: underline dotted; }
+.tpl-full { margin-top: 6px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 12em; overflow: auto; }
+.theme-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+.theme-row label { font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); }
+.theme-row select { min-width: 210px; }
+.theme-row small { font-size: 11px; color: var(--ink-soft); }
+
 /* Review */
 .pill { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px;
   background: var(--mark); color: #fff; font-size: 10.5px; line-height: 17px; text-align: center; }
@@ -299,7 +309,7 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
     </div>
     <div class="panel">
       <h2>Subir CSV etiquetado</h2>
-      <p>Columnas: <code>note_id</code>, <code>category</code> y <code>claude_category</code>. Con <code>category</code> llena se guarda como etiqueta revisada. Con solo <code>claude_category</code> (sugerencia de la IA) va a la pestaña <b>Revisar</b>. Acepta CSV de Excel con <code>;</code>.</p>
+      <p>Columnas: <code>note_id</code>, <code>category</code>, <code>theme</code>, <code>claude_category</code> y <code>claude_theme</code>. Con <code>category</code> llena se guarda como etiqueta revisada. Con solo <code>claude_category</code> (sugerencia de la IA) va a la pestaña <b>Revisar</b>. Acepta CSV de Excel con <code>;</code>.</p>
       <div class="row">
         <input type="file" id="file" accept=".csv,text/csv">
         <button class="btn primary" id="upload">Subir</button>
@@ -342,7 +352,32 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, v); } catch {} },
 };
 
-let cats = [], queue = [], idx = 0, session = 0, done = {};
+let cats = [], themes = [], queue = [], idx = 0, session = 0, done = {};
+
+const TEMPLATE_NAMES = {
+  app_place_gone: "App: el lugar no existe",
+  app_poi_data: "App: datos del POI",
+  app_note: "App (Organic Maps / CoMaps)",
+  sc_unable: "StreetComplete: no pudo responder",
+  sc_note: "StreetComplete",
+  onosm: "OnOSM: formulario de negocio",
+  osb_moved: "Migrada de OpenStreetBugs",
+};
+
+function themeOptions(selected) {
+  return `<option value="">— sin tema —</option>` + themes.map((t) =>
+    `<option value="${t.code}" ${t.code === selected ? "selected" : ""}>${esc(t.name_es)}</option>`).join("");
+}
+
+// User's words big; app template as a grey tag with the full text folded.
+function noteBody(n) {
+  const user = (n.user_text || "").trim();
+  const full = (n.text || "").trim();
+  const tpl = n.template ? `<div class="tpl"><span class="tpl-tag">${esc(TEMPLATE_NAMES[n.template] || n.template)}${n.poi_type ? " · " + esc(n.poi_type) : ""}</span>
+      <details><summary>texto completo</summary><div class="tpl-full">${esc(full)}</div></details></div>` : "";
+  const main = user ? esc(user) : `<em>${n.template ? "(solo plantilla, sin texto de la persona)" : "(sin texto)"}</em>`;
+  return { tpl, main, empty: !user };
+}
 
 function toast(msg, err = false) {
   const t = $("#toast");
@@ -442,15 +477,23 @@ function renderCard() {
   }
   const n = queue[idx];
   const date = n.created_at ? n.created_at.slice(0, 10) : "";
-  const text = (n.text || "").trim();
+  const body = noteBody(n);
+  if (n.theme_pick === undefined) n.theme_pick = n.theme_auto || "";
   slot.innerHTML = `<article class="card">
     <div class="meta">
       <a href="https://www.openstreetmap.org/note/${n.note_id}" target="_blank" rel="noopener"><b>#${n.note_id}</b> ↗</a>
       <span>${esc(n.country)}</span><span>${esc(n.app)}</span><span>${date}</span><span>${n.status || ""}</span>
     </div>
-    <div class="note-text ${text ? "" : "empty"}">${text ? esc(text) : "(sin texto)"}</div>
+    <div class="note-text ${body.empty ? "empty" : ""}">${body.main}</div>
+    ${body.tpl}
+    <div class="theme-row">
+      <label for="theme">Tema</label>
+      <select id="theme">${themeOptions(n.theme_pick)}</select>
+      ${n.theme_auto ? `<small>sugerido por el tipo de POI</small>` : ""}
+    </div>
     <div class="bar"><i style="width:${(idx / queue.length) * 100}%"></i></div>
   </article>`;
+  $("#theme").onchange = () => { n.theme_pick = $("#theme").value; $("#theme").blur(); };
   $("#pos").textContent = `Nota ${idx + 1} de ${queue.length} en este lote`;
   const prev = done[n.note_id];
   if (prev) document.querySelector(`.key[data-code="${prev}"]`)?.classList.add("current");
@@ -475,7 +518,8 @@ async function label(code) {
   btn?.classList.add("hit"); setTimeout(() => btn?.classList.remove("hit"), 180);
   try {
     await api("/api/labels", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user: u, labels: [{ note_id: n.note_id, category: code }] }) });
+      body: JSON.stringify({ user: u, labels: [{ note_id: n.note_id, category: code,
+        theme: n.theme_pick || null, claude_theme: n.theme_auto || null }] }) });
     if (!done[n.note_id]) session++;
     done[n.note_id] = code;
     $("#session").textContent = `${session} etiquetadas en esta sesión`;
@@ -553,14 +597,19 @@ function renderReview() {
         <a href="https://www.openstreetmap.org/note/${n.note_id}" target="_blank" rel="noopener"><b>#${n.note_id}</b> ↗</a>
         <span>${esc(langName(n.lang))}</span><span>${esc(n.country)}</span><span>${esc(n.app)}</span>
       </div>
-      <div class="rv-text">${esc((n.text || "").trim()) || "<em>(sin texto)</em>"}</div>
+      <div class="rv-text">${noteBody(n).main}</div>
+      ${noteBody(n).tpl}
     </div>
     <label class="rv-pick">
-      <select aria-label="Categoría de la nota ${n.note_id}">${categoryOptions(n.pick)}</select>
+      <select class="rv-cat" aria-label="Categoría de la nota ${n.note_id}">${categoryOptions(n.pick)}</select>
+      <select class="rv-theme" aria-label="Tema de la nota ${n.note_id}">${themeOptions(n.theme_pick)}</select>
       <small>IA: ${esc(catName(n.suggestion))}${n.pick !== n.suggestion && n.pick !== SKIP ? " · <b>cambiada</b>" : ""}</small>
     </label>
   </div>`).join("");
-  list.querySelectorAll(".rv select").forEach((sel) => (sel.onchange = () => {
+  list.querySelectorAll(".rv .rv-theme").forEach((sel) => (sel.onchange = () => {
+    reviewRows[+sel.closest(".rv").dataset.i].theme_pick = sel.value;
+  }));
+  list.querySelectorAll(".rv .rv-cat").forEach((sel) => (sel.onchange = () => {
     const i = +sel.closest(".rv").dataset.i;
     reviewRows[i].pick = sel.value;
     const row = sel.closest(".rv");
@@ -574,7 +623,7 @@ function renderReview() {
 async function loadReview() {
   try {
     const r = await (await api(`/api/review?lang=${encodeURIComponent($("#lang").value)}&size=25`)).json();
-    reviewRows = r.notes.map((n) => ({ ...n, pick: n.suggestion }));
+    reviewRows = r.notes.map((n) => ({ ...n, pick: n.suggestion, theme_pick: n.suggestion_theme || "" }));
     $("#review-count").textContent = r.pending || "";
     $("#review-pending").textContent = r.pending ? `${r.pending.toLocaleString("es")} pendientes${$("#lang").value ? " en " + langName($("#lang").value) : ""}` : "";
   } catch (e) { toast(e.message, true); reviewRows = []; }
@@ -584,7 +633,8 @@ async function loadReview() {
 $("#approve").onclick = async () => {
   let u; try { u = user(); } catch (e) { return toast(e.message, true); }
   const labels = reviewRows.filter((r) => r.pick !== SKIP)
-    .map((r) => ({ note_id: r.note_id, category: r.pick, claude_category: r.suggestion }));
+    .map((r) => ({ note_id: r.note_id, category: r.pick, claude_category: r.suggestion,
+                   theme: r.theme_pick || null, claude_theme: r.suggestion_theme || null }));
   if (!labels.length) return;
   $("#approve").disabled = true;
   try {
@@ -611,6 +661,9 @@ async function loadStats() {
       </table>
       <table><tr><th>Idioma</th><th>Categoría</th><th class="num">Etiquetas</th></tr>
       ${s.by_category.map((r) => `<tr><td>${esc(r.lang)}</td><td>${esc((cats.find((c) => c.code === r.category) || {}).name_es || r.category)}</td><td class="num">${r.labels}</td></tr>`).join("")}
+      </table>
+      <table><tr><th>Tema</th><th class="num">Etiquetas</th></tr>
+      ${s.by_theme.map((r) => `<tr><td>${esc((themes.find((t) => t.code === r.theme) || {}).name_es || "— sin tema —")}</td><td class="num">${r.labels}</td></tr>`).join("")}
       </table>`;
   } catch (e) { toast(e.message, true); }
 }
@@ -645,6 +698,7 @@ $("#lang").onchange = () => {
     me = await (await api("/api/me")).json();
     renderAccount();
     cats = await (await api("/api/categories")).json();
+    themes = await (await api("/api/themes")).json();
     renderKeys();
     const langs = await (await api("/api/langs")).json();
     const sel = $("#lang");
