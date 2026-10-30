@@ -5,7 +5,9 @@
 - GET  /api/batch?lang=&size=     random unlabeled notes in a language (JSON)
 - GET  /api/batch.csv?lang=&size= same batch as CSV to label offline
 - POST /api/labels                save labels from the page
-- POST /api/import                upload a labeled CSV
+- POST /api/import                upload a CSV: `category` = reviewed label,
+                                  only `claude_category` = suggestion to review
+- GET  /api/review?lang=&size=    AI suggestions not reviewed yet
 - GET  /api/stats                 labels per user/language/category
 - GET  /api/labels.csv            all labels with note text (for training)
 - GET  /api/me                    who is logged in
@@ -238,6 +240,25 @@ class LabelsIn(BaseModel):
     labels: list[Label]
 
 
+def save_suggestions(user: str, items: list[tuple[int, str]]) -> int:
+    """Store AI suggestions to review later. A new upload replaces the old one."""
+    if not items:
+        return 0
+    with pool.connection() as conn:
+        langs = {r["note_id"]: r["lang"] for r in conn.execute(
+            "SELECT note_id, lang FROM ml.note_lang WHERE note_id = ANY(%s)",
+            ([i[0] for i in items],))}
+        with conn.cursor() as cur:
+            cur.executemany("""
+                INSERT INTO ml.note_suggestions (note_id, lang, category, imported_by)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (note_id) DO UPDATE
+                SET category = EXCLUDED.category, imported_by = EXCLUDED.imported_by,
+                    created_at = now()""",
+                [(nid, langs.get(nid), cat, user) for nid, cat in items])
+    return len(items)
+
+
 def save_labels(user: str, items: list[tuple[int, str, str | None]]) -> dict:
     """Upsert (note_id, user). Returns counts. Items already validated."""
     if not items:
@@ -306,26 +327,62 @@ async def import_csv(request: Request, file: UploadFile = File(...),
         known = {r["note_id"] for r in conn.execute(
             "SELECT note_id FROM ml.note_lang WHERE note_id = ANY(%s)", (ids,))}
 
-    items, errors, skipped = [], [], 0
+    def code(value: str) -> str | None:
+        value = value.lower()
+        return (value if value in cats else by_name.get(value, value)) if value else None
+
+    items, suggestions, errors, skipped = [], [], [], 0
     for line, r in enumerate(rows, start=2):  # line 1 is the header
-        nid, cat = r.get("note_id", ""), r.get("category", "").lower()
-        if not cat:
+        nid = r.get("note_id", "")
+        cat, cc = code(r.get("category", "")), code(r.get("claude_category", ""))
+        if not cat and not cc:
             skipped += 1
             continue
-        cat = cat if cat in cats else by_name.get(cat, cat)
-        cc = r.get("claude_category", "").lower() or None
-        cc = (cc if cc in cats else by_name.get(cc, cc)) if cc else None
         if not nid.isdigit():
             errors.append({"line": line, "note_id": nid, "error": "note_id inválido"})
         elif int(nid) not in known:
             errors.append({"line": line, "note_id": nid, "error": "nota no existe"})
-        elif cat not in cats:
+        elif cat and cat not in cats:
             errors.append({"line": line, "note_id": nid, "error": f"categoría desconocida: {cat}"})
-        else:
+        elif cc and cc not in cats:
+            errors.append({"line": line, "note_id": nid,
+                           "error": f"claude_category desconocida: {cc}"})
+        elif cat:
             items.append((int(nid), cat, cc))
+        else:  # only the AI suggestion: goes to the review queue
+            suggestions.append((int(nid), cc))
     result = save_labels(user, items)
-    return {"rows": len(rows), "saved": result["saved"], "skipped_blank": skipped,
-            "errors": errors[:200], "error_count": len(errors)}
+    suggested = save_suggestions(user, suggestions)
+    return {"rows": len(rows), "saved": result["saved"], "suggested": suggested,
+            "skipped_blank": skipped, "errors": errors[:200], "error_count": len(errors)}
+
+
+REVIEW_SQL = """
+SELECT s.note_id, s.category AS suggestion
+FROM ml.note_suggestions s
+WHERE (%(lang)s = '' OR s.lang = %(lang)s)
+  AND NOT EXISTS (SELECT 1 FROM ml.note_labels x WHERE x.note_id = s.note_id)
+ORDER BY s.created_at, s.note_id
+LIMIT %(n)s
+"""
+
+REVIEW_COUNT_SQL = """
+SELECT count(*) AS n FROM ml.note_suggestions s
+WHERE (%(lang)s = '' OR s.lang = %(lang)s)
+  AND NOT EXISTS (SELECT 1 FROM ml.note_labels x WHERE x.note_id = s.note_id)
+"""
+
+
+@app.get("/api/review")
+def review(lang: str = Query("", max_length=8), size: int = Query(25, ge=1, le=200)):
+    """AI suggestions nobody has reviewed yet, with the note text."""
+    args = {"lang": lang, "n": size}
+    with pool.connection() as conn:
+        pending = conn.execute(REVIEW_COUNT_SQL, args).fetchone()["n"]
+        sugg = {r["note_id"]: r["suggestion"] for r in conn.execute(REVIEW_SQL, args)}
+        notes = conn.execute(NOTES_SQL, {"ids": list(sugg)}).fetchall() if sugg else []
+    return {"pending": pending,
+            "notes": [{**n, "suggestion": sugg[n["note_id"]]} for n in notes]}
 
 
 @app.get("/api/stats")

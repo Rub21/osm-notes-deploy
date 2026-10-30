@@ -84,6 +84,17 @@ CREATE TABLE IF NOT EXISTS ml.note_labels (
 );
 CREATE INDEX IF NOT EXISTS note_labels_note ON ml.note_labels (note_id);
 
+-- AI suggestions waiting for human review (uploaded CSV with only
+-- claude_category filled). Approving one writes a row in ml.note_labels.
+CREATE TABLE IF NOT EXISTS ml.note_suggestions (
+ note_id     INTEGER PRIMARY KEY,
+ lang        TEXT,
+ category    TEXT NOT NULL REFERENCES ml.categories (code),
+ imported_by TEXT,
+ created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS note_suggestions_lang ON ml.note_suggestions (lang);
+
 -- Limited role for the labeling API: reads public, writes only ml.note_labels.
 DO $$
 BEGIN
@@ -97,6 +108,7 @@ GRANT USAGE ON SCHEMA ml TO labeler;
 GRANT SELECT ON ml.categories, ml.note_lang TO labeler;
 GRANT SELECT, INSERT, UPDATE ON ml.note_labels TO labeler;
 GRANT USAGE ON SEQUENCE ml.note_labels_id_seq TO labeler;
+GRANT SELECT, INSERT, UPDATE ON ml.note_suggestions TO labeler;
 
 GRANT USAGE ON SCHEMA public TO labeler;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO labeler;

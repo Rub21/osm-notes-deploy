@@ -1,2 +1,4 @@
 .env
 output/
+images/labeler/__pycache__/*
+images/extractor/__pycache__/*

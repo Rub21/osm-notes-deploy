@@ -166,6 +166,35 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
 .empty-state { text-align: center; padding: 50px 20px; color: var(--ink-soft); }
 .empty-state strong { display: block; font: 600 22px Fraunces, Georgia, serif; color: var(--ink); margin-bottom: 6px; }
 
+/* Review */
+.pill { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px;
+  background: var(--mark); color: #fff; font-size: 10.5px; line-height: 17px; text-align: center; }
+.pill:empty { display: none; }
+.review-head { display: flex; justify-content: space-between; align-items: end; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.review-head h2 { font: 600 20px Fraunces, Georgia, serif; margin: 0 0 2px; }
+.review-head p { color: var(--ink-soft); margin: 0; }
+.review-pending { font-size: 12px; color: var(--ink-soft); }
+.rv {
+  display: grid; grid-template-columns: 1fr 250px; gap: 8px 16px; align-items: start;
+  background: var(--card); border: 1px solid var(--rule); border-left: 4px solid var(--rule);
+  border-radius: 3px; padding: 12px 14px; margin-bottom: 8px; transition: border-color .15s, opacity .2s;
+}
+.rv.map { border-left-color: var(--map); }
+.rv.close { border-left-color: var(--close); }
+.rv.unsure { border-left-color: var(--unsure); }
+.rv.changed { box-shadow: inset 0 0 0 1px var(--mark); }
+.rv.skip { opacity: .5; }
+.rv .meta { font-size: 11.5px; }
+.rv-text { font: 400 17px/1.4 Fraunces, Georgia, serif; margin-top: 4px; white-space: pre-wrap;
+  overflow-wrap: anywhere; max-height: 9.8em; overflow: auto; }
+.rv-pick { display: flex; flex-direction: column; gap: 4px; }
+.rv-pick select { width: 100%; min-width: 0; }
+.rv-pick small { font-size: 11px; color: var(--ink-soft); }
+.rv-pick small b { color: var(--mark); font-weight: 600; }
+.review-foot { position: sticky; bottom: 0; display: flex; justify-content: space-between; align-items: center;
+  gap: 12px; flex-wrap: wrap; padding: 12px 0; background: var(--paper); border-top: 1px solid var(--rule); }
+#review-summary { font-size: 12px; color: var(--ink-soft); }
+
 .toast {
   position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%) translateY(20px);
   background: var(--ink); color: var(--paper); padding: 8px 14px; border-radius: 3px;
@@ -180,6 +209,7 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
   input[type=text], select { min-width: 0; width: 100%; }
   .field { flex: 1 1 140px; }
   .account { flex: 1 1 100%; }
+  .rv { grid-template-columns: 1fr; }
   .osm-login, .profile { flex: 1; justify-content: center; }
 }
 </style>
@@ -218,6 +248,7 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
 
   <nav role="tablist">
     <button role="tab" data-tab="label" aria-selected="true">Etiquetar</button>
+    <button role="tab" data-tab="review" aria-selected="false">Revisar <span class="pill" id="review-count"></span></button>
     <button role="tab" data-tab="csv" aria-selected="false">CSV</button>
     <button role="tab" data-tab="stats" aria-selected="false">Avance</button>
   </nav>
@@ -233,6 +264,22 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
     <div class="nav-keys">
       <button class="btn" id="back">← Anterior <kbd>Z</kbd></button>
       <button class="btn" id="skip">Saltar <kbd>S</kbd></button>
+    </div>
+  </section>
+
+  <!-- Review AI suggestions -->
+  <section id="tab-review" hidden>
+    <div class="review-head">
+      <div>
+        <h2>Revisar sugerencias de la IA</h2>
+        <p>La categoría sugerida ya está elegida. Cámbiala solo si está mal y aprueba la página.</p>
+      </div>
+      <span class="review-pending" id="review-pending"></span>
+    </div>
+    <div id="review-list"></div>
+    <div class="review-foot">
+      <span id="review-summary"></span>
+      <button class="btn primary" id="approve">Aprobar página</button>
     </div>
   </section>
 
@@ -252,7 +299,7 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
     </div>
     <div class="panel">
       <h2>Subir CSV etiquetado</h2>
-      <p>Columnas: <code>note_id</code>, <code>category</code> y opcional <code>claude_category</code>. Filas con <code>category</code> vacía se saltan. Acepta CSV de Excel con <code>;</code>.</p>
+      <p>Columnas: <code>note_id</code>, <code>category</code> y <code>claude_category</code>. Con <code>category</code> llena se guarda como etiqueta revisada. Con solo <code>claude_category</code> (sugerencia de la IA) va a la pestaña <b>Revisar</b>. Acepta CSV de Excel con <code>;</code>.</p>
       <div class="row">
         <input type="file" id="file" accept=".csv,text/csv">
         <button class="btn primary" id="upload">Subir</button>
@@ -461,12 +508,94 @@ $("#upload").onclick = async () => {
   try {
     const r = await (await api("/api/import", { method: "POST", body: fd })).json();
     $("#report").innerHTML = `<table>
-      <tr><th>Filas</th><th>Guardadas</th><th>Vacías (saltadas)</th><th>Errores</th></tr>
-      <tr><td class="num">${r.rows}</td><td class="num">${r.saved}</td><td class="num">${r.skipped_blank}</td><td class="num">${r.error_count}</td></tr>
+      <tr><th>Filas</th><th>Guardadas</th><th>Para revisar</th><th>Vacías (saltadas)</th><th>Errores</th></tr>
+      <tr><td class="num">${r.rows}</td><td class="num">${r.saved}</td><td class="num">${r.suggested}</td><td class="num">${r.skipped_blank}</td><td class="num">${r.error_count}</td></tr>
     </table>` + (r.errors.length ? `<table><tr><th>Línea</th><th>note_id</th><th>Error</th></tr>${
       r.errors.map((e) => `<tr><td class="num">${e.line}</td><td>${esc(e.note_id)}</td><td>${esc(e.error)}</td></tr>`).join("")}</table>` : "");
-    toast(`${r.saved} etiquetas guardadas`);
+    toast(`${r.saved} etiquetas guardadas · ${r.suggested} sugerencias para revisar`);
+    if (r.suggested) loadReview();
   } catch (e) { toast(e.message, true); }
+};
+
+/* ---------- Review ---------- */
+let reviewRows = [];
+const SKIP = "__skip";
+
+function catName(code) { return (cats.find((c) => c.code === code) || {}).name_es || code; }
+function catGroup(code) { return (cats.find((c) => c.code === code) || {}).grp || ""; }
+
+function categoryOptions(selected) {
+  const groups = [["map", "Hay que tocar el mapa"], ["close", "Se cierra sin tocar el mapa"], ["unsure", "Dudas"]];
+  return groups.map(([g, title]) => `<optgroup label="${title}">${cats.filter((c) => c.grp === g).map((c) =>
+    `<option value="${c.code}" ${c.code === selected ? "selected" : ""}>${esc(c.name_es)}</option>`).join("")}</optgroup>`).join("")
+    + `<option value="${SKIP}">— saltar, no guardar —</option>`;
+}
+
+function reviewSummary() {
+  const changed = reviewRows.filter((r) => r.pick !== r.suggestion && r.pick !== SKIP).length;
+  const skipped = reviewRows.filter((r) => r.pick === SKIP).length;
+  const save = reviewRows.length - skipped;
+  $("#review-summary").textContent = reviewRows.length
+    ? `${save} para guardar · ${changed} cambiadas · ${skipped} saltadas` : "";
+  $("#approve").disabled = !save;
+  $("#approve").textContent = save ? `Aprobar ${save} notas` : "Aprobar página";
+}
+
+function renderReview() {
+  const list = $("#review-list");
+  if (!reviewRows.length) {
+    list.innerHTML = `<div class="card empty-state"><strong>Nada para revisar</strong>Sube un CSV con <code>claude_category</code> en la pestaña CSV.</div>`;
+    reviewSummary(); return;
+  }
+  list.innerHTML = reviewRows.map((n, i) => `<div class="rv ${catGroup(n.pick)}" data-i="${i}">
+    <div>
+      <div class="meta">
+        <a href="https://www.openstreetmap.org/note/${n.note_id}" target="_blank" rel="noopener"><b>#${n.note_id}</b> ↗</a>
+        <span>${esc(langName(n.lang))}</span><span>${esc(n.country)}</span><span>${esc(n.app)}</span>
+      </div>
+      <div class="rv-text">${esc((n.text || "").trim()) || "<em>(sin texto)</em>"}</div>
+    </div>
+    <label class="rv-pick">
+      <select aria-label="Categoría de la nota ${n.note_id}">${categoryOptions(n.pick)}</select>
+      <small>IA: ${esc(catName(n.suggestion))}${n.pick !== n.suggestion && n.pick !== SKIP ? " · <b>cambiada</b>" : ""}</small>
+    </label>
+  </div>`).join("");
+  list.querySelectorAll(".rv select").forEach((sel) => (sel.onchange = () => {
+    const i = +sel.closest(".rv").dataset.i;
+    reviewRows[i].pick = sel.value;
+    const row = sel.closest(".rv");
+    row.className = `rv ${catGroup(sel.value)}${sel.value === SKIP ? " skip" : ""}${sel.value !== reviewRows[i].suggestion && sel.value !== SKIP ? " changed" : ""}`;
+    row.querySelector("small").innerHTML = `IA: ${esc(catName(reviewRows[i].suggestion))}${row.classList.contains("changed") ? " · <b>cambiada</b>" : ""}`;
+    reviewSummary();
+  }));
+  reviewSummary();
+}
+
+async function loadReview() {
+  try {
+    const r = await (await api(`/api/review?lang=${encodeURIComponent($("#lang").value)}&size=25`)).json();
+    reviewRows = r.notes.map((n) => ({ ...n, pick: n.suggestion }));
+    $("#review-count").textContent = r.pending || "";
+    $("#review-pending").textContent = r.pending ? `${r.pending.toLocaleString("es")} pendientes${$("#lang").value ? " en " + langName($("#lang").value) : ""}` : "";
+  } catch (e) { toast(e.message, true); reviewRows = []; }
+  renderReview();
+}
+
+$("#approve").onclick = async () => {
+  let u; try { u = user(); } catch (e) { return toast(e.message, true); }
+  const labels = reviewRows.filter((r) => r.pick !== SKIP)
+    .map((r) => ({ note_id: r.note_id, category: r.pick, claude_category: r.suggestion }));
+  if (!labels.length) return;
+  $("#approve").disabled = true;
+  try {
+    await api("/api/labels", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user: u, labels }) });
+    session += labels.length;
+    $("#session").textContent = `${session} etiquetadas en esta sesión`;
+    toast(`${labels.length} notas aprobadas`);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    loadReview();
+  } catch (e) { toast(e.message, true); $("#approve").disabled = false; }
 };
 
 /* ---------- Stats ---------- */
@@ -489,8 +618,9 @@ async function loadStats() {
 /* ---------- Tabs, keys, init ---------- */
 document.querySelectorAll("nav button").forEach((b) => (b.onclick = () => {
   document.querySelectorAll("nav button").forEach((x) => x.setAttribute("aria-selected", x === b));
-  ["label", "csv", "stats"].forEach((t) => ($("#tab-" + t).hidden = t !== b.dataset.tab));
+  ["label", "review", "csv", "stats"].forEach((t) => ($("#tab-" + t).hidden = t !== b.dataset.tab));
   if (b.dataset.tab === "stats") loadStats();
+  if (b.dataset.tab === "review") loadReview();
 }));
 
 document.addEventListener("keydown", (e) => {
@@ -505,7 +635,10 @@ $("#back").onclick = back;
 
 $("#user").value = store.get("user");
 $("#user").onchange = () => store.set("user", $("#user").value.trim());
-$("#lang").onchange = () => { store.set("lang", $("#lang").value); loadBatch(); };
+$("#lang").onchange = () => {
+  store.set("lang", $("#lang").value); loadBatch();
+  if (!$("#tab-review").hidden) loadReview();
+};
 
 (async function init() {
   try {
@@ -520,6 +653,7 @@ $("#lang").onchange = () => { store.set("lang", $("#lang").value); loadBatch(); 
     const saved = store.get("lang");
     if (saved && langs.some((l) => l.lang === saved)) { sel.value = saved; loadBatch(); }
     else renderCard();
+    loadReview();
   } catch (e) { toast(e.message, true); renderCard(); }
 })();
 </script>
