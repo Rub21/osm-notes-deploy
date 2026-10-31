@@ -10,7 +10,8 @@
                                   only `claude_category` = suggestion to review
 - GET  /api/review?lang=&size=    AI suggestions not reviewed yet
 - GET  /api/stats                 labels per user/language/category
-- GET  /api/labels.csv            all labels with note text (for training)
+- GET  /api/labels.csv            all labels with note text (public, filters: lang,
+                                    user, since, category, theme, changed)
 - GET  /api/me                    who is logged in
 - GET  /auth/login, /auth/callback, /auth/logout   OSM OAuth 2.0 login
 
@@ -26,6 +27,7 @@ claude_category goes to the review queue. theme / claude_theme are optional.
 
 import base64
 import csv
+import datetime as dt
 import hashlib
 import io
 import os
@@ -449,17 +451,39 @@ def stats():
 
 
 @app.get("/api/labels.csv")
-def labels_csv(request: Request):
-    if OSM_LOGIN:
-        current_user(request)
+def labels_csv(lang: str = "", user: str = "", since: str = "", category: str = "",
+               theme: str = "", changed: bool = False):
+    """Public, read-only. Optional filters (comma lists for lang/category/theme):
+    ?lang=es,en&user=Rub21&since=2026-10-30&category=spam&theme=food&changed=1
+    changed=1: only notes where the person changed the AI suggestion."""
+    def items(v: str) -> list[str]:
+        return [x.strip() for x in v.split(",") if x.strip()]
+
+    where, params = [], {}
+    for col, value in (("lang", lang), ("category", category), ("theme", theme)):
+        if items(value):
+            where.append(f"{col} = ANY(%({col})s)")
+            params[col] = items(value)
+    if user:
+        where.append("user_name = %(user)s")
+        params["user"] = user
+    if since:
+        try:
+            params["since"] = dt.date.fromisoformat(since)
+        except ValueError:
+            raise HTTPException(400, "since debe ser una fecha AAAA-MM-DD")
+        where.append("updated_at >= %(since)s")
+    if changed:
+        where.append("claude_category IS NOT NULL AND (category IS DISTINCT FROM claude_category"
+                     " OR theme IS DISTINCT FROM claude_theme)")
+    sql = """SELECT note_id, lang, category, theme, claude_category, claude_theme,
+                    user_name, updated_at FROM ml.note_labels"""
+    if where:
+        sql += " WHERE " + " AND ".join(where)
     with pool.connection() as conn:
-        ids = [r["note_id"] for r in conn.execute(
-            "SELECT DISTINCT note_id FROM ml.note_labels")]
+        labels = conn.execute(sql + " ORDER BY note_id, user_name", params).fetchall()
+        ids = list({lb["note_id"] for lb in labels})
         texts = {r["note_id"]: r for r in conn.execute(NOTES_SQL, {"ids": ids})} if ids else {}
-        labels = conn.execute("""
-            SELECT note_id, lang, category, theme, claude_category, claude_theme,
-                   user_name, updated_at
-            FROM ml.note_labels ORDER BY note_id, user_name""").fetchall()
     buf = io.StringIO()
     cols = ["note_id", "lang", "country", "app", "template", "poi_type", "user_text", "text",
             "category", "theme", "claude_category", "claude_theme", "user_name", "updated_at"]
