@@ -726,10 +726,29 @@ $("#back").onclick = back;
 
 $("#user").value = store.get("user");
 $("#user").onchange = () => store.set("user", $("#user").value.trim());
-$("#lang").onchange = () => {
-  store.set("lang", $("#lang").value); loadBatch();
+// The language lives in the URL (#es, #en…) so a link opens it directly.
+function hashLang() {
+  const v = decodeURIComponent(location.hash.slice(1));
+  return /^[A-Za-z-]{2,8}$/.test(v) ? v : "";
+}
+function ensureLangOption(lang) {
+  const sel = $("#lang");
+  if (lang && ![...sel.options].some((o) => o.value === lang))
+    sel.insertAdjacentHTML("beforeend", `<option value="${esc(lang)}">${esc(langName(lang))}</option>`);
+}
+function setLang(lang) {
+  ensureLangOption(lang);
+  $("#lang").value = lang;
+  store.set("lang", lang);
+  history.replaceState(null, "", lang ? `#${encodeURIComponent(lang)}` : location.pathname + location.search);
+  loadBatch();
   if (!$("#tab-review").hidden) loadReview();
-};
+}
+$("#lang").onchange = () => setLang($("#lang").value);
+addEventListener("hashchange", () => {
+  const lang = hashLang();
+  if (lang && lang !== $("#lang").value) setLang(lang);
+});
 
 (async function init() {
   try {
@@ -738,14 +757,21 @@ $("#lang").onchange = () => {
     cats = await (await api("/api/categories")).json();
     themes = await (await api("/api/themes")).json();
     renderKeys();
-    const langs = await (await api("/api/langs")).json();
+    // Load notes first: /api/langs counts millions of rows and can be slow.
     const sel = $("#lang");
-    sel.innerHTML = `<option value="">— elige —</option>` + langs.map((l) =>
-      `<option value="${esc(l.lang)}">${esc(langName(l.lang))} · ${l.labeled}/${l.notes.toLocaleString("es")}</option>`).join("");
-    const saved = store.get("lang");
-    if (saved && langs.some((l) => l.lang === saved)) { sel.value = saved; loadBatch(); }
-    else renderCard();
+    const start = hashLang() || store.get("lang");
+    if (start) {
+      sel.innerHTML = `<option value="${esc(start)}">${esc(langName(start))}</option>`;
+      setLang(start);
+    } else renderCard();
     loadReview();
+    try {
+      const langs = await (await api("/api/langs")).json();
+      sel.innerHTML = `<option value="">— elige —</option>` + langs.map((l) =>
+        `<option value="${esc(l.lang)}">${esc(langName(l.lang))} · ${l.labeled}/${l.notes.toLocaleString("es")}</option>`).join("");
+      ensureLangOption(start);
+      sel.value = start || "";
+    } catch (e) { toast("No se pudo cargar la lista de idiomas: " + e.message, true); }
   } catch (e) { toast(e.message, true); renderCard(); }
 })();
 </script>
