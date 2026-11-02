@@ -173,8 +173,24 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
 .tpl-full { margin-top: 6px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 12em; overflow: auto; }
 .theme-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
 .theme-row label { font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); }
-.theme-row select { min-width: 210px; }
 .theme-row small { font-size: 11px; color: var(--ink-soft); }
+
+/* Clickable colored labels (theme and category) */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.card-theme { margin-top: 8px; }
+.chip {
+  --c: var(--ink-soft);
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  border: 1px solid var(--rule); border-radius: 999px; padding: 4px 11px;
+  background: var(--card); font-size: 12.5px; line-height: 1.3;
+  transition: background .12s, border-color .12s;
+}
+.chip::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--c); flex: none; }
+.chip:hover { border-color: var(--c); }
+.chip[aria-pressed=true] {
+  background: color-mix(in srgb, var(--c) 24%, var(--card));
+  border-color: var(--c); font-weight: 600;
+}
 
 /* Review */
 .pill { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px;
@@ -185,7 +201,7 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
 .review-head p { color: var(--ink-soft); margin: 0; }
 .review-pending { font-size: 12px; color: var(--ink-soft); }
 .rv {
-  display: grid; grid-template-columns: 1fr 250px; gap: 8px 16px; align-items: start;
+  display: grid; grid-template-columns: 1fr; gap: 10px; align-items: start;
   background: var(--card); border: 1px solid var(--rule); border-left: 4px solid var(--rule);
   border-radius: 3px; padding: 12px 14px; margin-bottom: 8px; transition: border-color .15s, opacity .2s;
 }
@@ -197,8 +213,7 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
 .rv .meta { font-size: 11.5px; }
 .rv-text { font: 400 17px/1.4 Fraunces, Georgia, serif; margin-top: 4px; white-space: pre-wrap;
   overflow-wrap: anywhere; max-height: 9.8em; overflow: auto; }
-.rv-pick { display: flex; flex-direction: column; gap: 4px; }
-.rv-pick select { width: 100%; min-width: 0; }
+.rv-pick { display: flex; flex-direction: column; gap: 8px; }
 .rv-pick small { font-size: 11px; color: var(--ink-soft); }
 .rv-pick small b { color: var(--mark); font-weight: 600; }
 .review-foot { position: sticky; bottom: 0; display: flex; justify-content: space-between; align-items: center;
@@ -364,9 +379,28 @@ const TEMPLATE_NAMES = {
   osb_moved: "Migrada de OpenStreetBugs",
 };
 
-function themeOptions(selected) {
-  return `<option value="">— sin tema —</option>` + themes.map((t) =>
-    `<option value="${t.code}" ${t.code === selected ? "selected" : ""}>${esc(t.name_es)}</option>`).join("");
+const THEME_COLORS = {
+  food: "#e07a2e", shop: "#c2417a", health: "#d64545", education: "#7a5cc7",
+  transport: "#2f7fc1", roads: "#6b7280", buildings: "#a0703c", leisure: "#2fa37a",
+  nature: "#4c9a2a", services: "#1f9aa8", none: "#9ca3af",
+};
+const GROUP_COLORS = { map: "var(--map)", close: "var(--close)", unsure: "var(--unsure)" };
+
+function chip(value, text, color, on) {
+  return `<button type="button" class="chip" data-v="${esc(value)}" aria-pressed="${on}" style="--c:${color}">${esc(text)}</button>`;
+}
+function themeChips(selected, cls = "") {
+  return `<div class="chips ${cls}" role="group" aria-label="Tema">${themes.map((t) =>
+    chip(t.code, t.name_es, THEME_COLORS[t.code] || "var(--ink-soft)", t.code === selected)).join("")}</div>`;
+}
+function categoryChips(selected) {
+  const list = ["map", "close", "unsure"].flatMap((g) => cats.filter((c) => c.grp === g));
+  return `<div class="chips rv-cat" role="group" aria-label="Categoría">${list.map((c) =>
+    chip(c.code, c.name_es, GROUP_COLORS[c.grp], c.code === selected)).join("")
+    }${chip(SKIP, "saltar, no guardar", "var(--mark)", selected === SKIP)}</div>`;
+}
+function press(box, value) {
+  box.querySelectorAll(".chip").forEach((b) => b.setAttribute("aria-pressed", b.dataset.v === value));
 }
 
 // User's words big; app template as a grey tag with the full text folded.
@@ -487,13 +521,18 @@ function renderCard() {
     <div class="note-text ${body.empty ? "empty" : ""}">${body.main}</div>
     ${body.tpl}
     <div class="theme-row">
-      <label for="theme">Tema</label>
-      <select id="theme">${themeOptions(n.theme_pick)}</select>
+      <label>Tema</label>
       ${n.theme_auto ? `<small>sugerido por el tipo de POI</small>` : ""}
     </div>
+    ${themeChips(n.theme_pick, "card-theme")}
     <div class="bar"><i style="width:${(idx / queue.length) * 100}%"></i></div>
   </article>`;
-  $("#theme").onchange = () => { n.theme_pick = $("#theme").value; $("#theme").blur(); };
+  // Click picks a theme; click the same one again to clear it.
+  $(".card-theme").onclick = (e) => {
+    const b = e.target.closest(".chip"); if (!b) return;
+    n.theme_pick = n.theme_pick === b.dataset.v ? "" : b.dataset.v;
+    press(e.currentTarget, n.theme_pick); b.blur();
+  };
   $("#pos").textContent = `Nota ${idx + 1} de ${queue.length} en este lote`;
   const prev = done[n.note_id];
   if (prev) document.querySelector(`.key[data-code="${prev}"]`)?.classList.add("current");
@@ -568,13 +607,6 @@ const SKIP = "__skip";
 function catName(code) { return (cats.find((c) => c.code === code) || {}).name_es || code; }
 function catGroup(code) { return (cats.find((c) => c.code === code) || {}).grp || ""; }
 
-function categoryOptions(selected) {
-  const groups = [["map", "Hay que tocar el mapa"], ["close", "Se cierra sin tocar el mapa"], ["unsure", "Dudas"]];
-  return groups.map(([g, title]) => `<optgroup label="${title}">${cats.filter((c) => c.grp === g).map((c) =>
-    `<option value="${c.code}" ${c.code === selected ? "selected" : ""}>${esc(c.name_es)}</option>`).join("")}</optgroup>`).join("")
-    + `<option value="${SKIP}">— saltar, no guardar —</option>`;
-}
-
 function reviewSummary() {
   const changed = reviewRows.filter((r) => r.pick !== r.suggestion && r.pick !== SKIP).length;
   const skipped = reviewRows.filter((r) => r.pick === SKIP).length;
@@ -600,20 +632,26 @@ function renderReview() {
       <div class="rv-text">${noteBody(n).main}</div>
       ${noteBody(n).tpl}
     </div>
-    <label class="rv-pick">
-      <select class="rv-cat" aria-label="Categoría de la nota ${n.note_id}">${categoryOptions(n.pick)}</select>
-      <select class="rv-theme" aria-label="Tema de la nota ${n.note_id}">${themeOptions(n.theme_pick)}</select>
+    <div class="rv-pick">
+      ${categoryChips(n.pick)}
+      ${themeChips(n.theme_pick, "rv-theme")}
       <small>IA: ${esc(catName(n.suggestion))}${n.pick !== n.suggestion && n.pick !== SKIP ? " · <b>cambiada</b>" : ""}</small>
-    </label>
+    </div>
   </div>`).join("");
-  list.querySelectorAll(".rv .rv-theme").forEach((sel) => (sel.onchange = () => {
-    reviewRows[+sel.closest(".rv").dataset.i].theme_pick = sel.value;
+  list.querySelectorAll(".rv .rv-theme").forEach((box) => (box.onclick = (e) => {
+    const b = e.target.closest(".chip"); if (!b) return;
+    const r = reviewRows[+box.closest(".rv").dataset.i];
+    r.theme_pick = r.theme_pick === b.dataset.v ? "" : b.dataset.v;
+    press(box, r.theme_pick);
   }));
-  list.querySelectorAll(".rv .rv-cat").forEach((sel) => (sel.onchange = () => {
-    const i = +sel.closest(".rv").dataset.i;
-    reviewRows[i].pick = sel.value;
-    const row = sel.closest(".rv");
-    row.className = `rv ${catGroup(sel.value)}${sel.value === SKIP ? " skip" : ""}${sel.value !== reviewRows[i].suggestion && sel.value !== SKIP ? " changed" : ""}`;
+  list.querySelectorAll(".rv .rv-cat").forEach((box) => (box.onclick = (e) => {
+    const b = e.target.closest(".chip"); if (!b) return;
+    const i = +box.closest(".rv").dataset.i;
+    const v = b.dataset.v;
+    reviewRows[i].pick = v;
+    press(box, v);
+    const row = box.closest(".rv");
+    row.className = `rv ${catGroup(v)}${v === SKIP ? " skip" : ""}${v !== reviewRows[i].suggestion && v !== SKIP ? " changed" : ""}`;
     row.querySelector("small").innerHTML = `IA: ${esc(catName(reviewRows[i].suggestion))}${row.classList.contains("changed") ? " · <b>cambiada</b>" : ""}`;
     reviewSummary();
   }));
