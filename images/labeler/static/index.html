@@ -214,6 +214,12 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
 .rv-text { font: 400 17px/1.4 Fraunces, Georgia, serif; margin-top: 4px; white-space: pre-wrap;
   overflow-wrap: anywhere; max-height: 9.8em; overflow: auto; }
 .rv-pick { display: flex; flex-direction: column; gap: 8px; }
+/* Category and theme in separate boxes, each with a title */
+.pick-group { border: 1px solid var(--rule); border-radius: 4px; padding: 8px 10px; background: var(--paper); }
+.pick-group > label { display: block; margin-bottom: 6px; font-size: 10.5px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--ink-soft); }
+.pick-group > label span { text-transform: none; letter-spacing: 0; margin-left: 6px; }
+.pick-group.locked .chips { opacity: .45; pointer-events: none; }
 .rv-pick small { font-size: 11px; color: var(--ink-soft); }
 .rv-pick small b { color: var(--mark); font-weight: 600; }
 .review-foot { position: sticky; bottom: 0; display: flex; justify-content: space-between; align-items: center;
@@ -558,7 +564,7 @@ async function label(code) {
   try {
     await api("/api/labels", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ user: u, labels: [{ note_id: n.note_id, category: code,
-        theme: n.theme_pick || null, claude_theme: n.theme_auto || null }] }) });
+        theme: NO_THEME.has(code) ? "none" : n.theme_pick || null, claude_theme: n.theme_auto || null }] }) });
     if (!done[n.note_id]) session++;
     done[n.note_id] = code;
     $("#session").textContent = `${session} etiquetadas en esta sesión`;
@@ -603,6 +609,7 @@ $("#upload").onclick = async () => {
 /* ---------- Review ---------- */
 let reviewRows = [];
 const SKIP = "__skip";
+const NO_THEME = new Set(["spam", "empty", "personal_data"]);
 
 function catName(code) { return (cats.find((c) => c.code === code) || {}).name_es || code; }
 function catGroup(code) { return (cats.find((c) => c.code === code) || {}).grp || ""; }
@@ -633,8 +640,8 @@ function renderReview() {
       ${noteBody(n).tpl}
     </div>
     <div class="rv-pick">
-      ${categoryChips(n.pick)}
-      ${themeChips(n.theme_pick, "rv-theme")}
+      <div class="pick-group"><label>Categoría<span>¿qué hay que hacer?</span></label>${categoryChips(n.pick)}</div>
+      <div class="pick-group rv-theme-box${NO_THEME.has(n.pick) ? " locked" : ""}"><label>Tema<span>¿de qué trata?</span></label>${themeChips(n.theme_pick, "rv-theme")}</div>
       <small>IA: ${esc(catName(n.suggestion))}${n.pick !== n.suggestion && n.pick !== SKIP ? " · <b>cambiada</b>" : ""}</small>
     </div>
   </div>`).join("");
@@ -651,6 +658,12 @@ function renderReview() {
     reviewRows[i].pick = v;
     press(box, v);
     const row = box.closest(".rv");
+    // Spam, empty and private notes have no theme: set "none" and lock the theme chips.
+    if (NO_THEME.has(v)) {
+      reviewRows[i].theme_pick = "none";
+      press(row.querySelector(".rv-theme"), "none");
+    }
+    row.querySelector(".rv-theme-box").classList.toggle("locked", NO_THEME.has(v));
     row.className = `rv ${catGroup(v)}${v === SKIP ? " skip" : ""}${v !== reviewRows[i].suggestion && v !== SKIP ? " changed" : ""}`;
     row.querySelector("small").innerHTML = `IA: ${esc(catName(reviewRows[i].suggestion))}${row.classList.contains("changed") ? " · <b>cambiada</b>" : ""}`;
     reviewSummary();
@@ -661,7 +674,8 @@ function renderReview() {
 async function loadReview() {
   try {
     const r = await (await api(`/api/review?lang=${encodeURIComponent($("#lang").value)}&size=25`)).json();
-    reviewRows = r.notes.map((n) => ({ ...n, pick: n.suggestion, theme_pick: n.suggestion_theme || "" }));
+    reviewRows = r.notes.map((n) => ({ ...n, pick: n.suggestion,
+      theme_pick: NO_THEME.has(n.suggestion) ? "none" : n.suggestion_theme || "" }));
     $("#review-count").textContent = r.pending || "";
     $("#review-pending").textContent = r.pending ? `${r.pending.toLocaleString("es")} pendientes${$("#lang").value ? " en " + langName($("#lang").value) : ""}` : "";
   } catch (e) { toast(e.message, true); reviewRows = []; }

@@ -54,6 +54,7 @@ PUBLIC_URL = os.environ.get("PUBLIC_URL", "http://localhost:8090").rstrip("/")
 SESSION_SECRET = os.environ.get("SESSION_SECRET") or secrets.token_urlsafe(32)
 OSM_LOGIN = bool(OSM_CLIENT_ID)
 MAX_BATCH = 1000
+NO_THEME_CATEGORIES = {"spam", "empty", "personal_data"}
 CSV_COLUMNS = ["note_id", "lang", "country", "app", "template", "user_text", "text",
                "category", "theme", "claude_category", "claude_theme"]
 USER_RE = re.compile(r"^[\w .@-]{2,40}$")
@@ -288,6 +289,9 @@ def save_labels(user: str, items: list[tuple]) -> dict:
     (note_id, category, claude_category, theme, claude_theme)."""
     if not items:
         return {"saved": 0}
+    # Spam, empty and private notes are not about a feature: theme is always none.
+    items = [(nid, cat, cc, "none" if cat in NO_THEME_CATEGORIES else th, cth)
+             for nid, cat, cc, th, cth in items]
     with pool.connection() as conn:
         langs = {r["note_id"]: r["lang"] for r in conn.execute(
             "SELECT note_id, lang FROM ml.note_lang WHERE note_id = ANY(%s)",
