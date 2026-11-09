@@ -67,7 +67,7 @@ app.add_middleware(
     max_age=30 * 24 * 3600, same_site="lax", https_only=PUBLIC_URL.startswith("https"))
 
 NOTES_SQL = """
-SELECT nl.note_id, nl.lang, nl.app, nl.template, nl.poi_type, nl.theme_auto,
+SELECT nl.note_id, nl.lang, nl.app, nl.template, nl.poi_type, nl.theme_auto, nl.context,
        COALESCE(c.country_name_en, c.country_name, 'Unknown') AS country,
        n.created_at, n.status, n.latitude AS lat, n.longitude AS lon,
        t.body AS text, COALESCE(nl.user_text, t.body) AS user_text
@@ -489,14 +489,15 @@ def labels_csv(lang: str = "", user: str = "", since: str = "", category: str = 
         ids = list({lb["note_id"] for lb in labels})
         texts = {r["note_id"]: r for r in conn.execute(NOTES_SQL, {"ids": ids})} if ids else {}
     buf = io.StringIO()
-    cols = ["note_id", "lang", "country", "app", "template", "poi_type", "user_text", "text",
-            "category", "theme", "claude_category", "claude_theme", "user_name", "updated_at"]
+    cols = ["note_id", "lang", "country", "app", "template", "poi_type", "context", "user_text",
+            "text", "category", "theme", "claude_category", "claude_theme", "user_name", "updated_at"]
     w = csv.DictWriter(buf, fieldnames=cols, extrasaction="ignore")
     w.writeheader()
     for lb in labels:
         t = texts.get(lb["note_id"], {})
         w.writerow({**lb, **{k: t.get(k) for k in
-                             ("country", "app", "template", "poi_type", "user_text", "text")}})
+                             ("country", "app", "template", "poi_type", "context",
+                              "user_text", "text")}})
     return StreamingResponse(
         iter([buf.getvalue().encode("utf-8-sig")]), media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="labels.csv"',

@@ -103,6 +103,9 @@ ALTER TABLE ml.note_lang ADD COLUMN IF NOT EXISTS theme_auto TEXT;
 -- Category set by rule (e.g. template-only "place has gone" -> place_changed).
 -- These notes are not sent to people for labeling.
 ALTER TABLE ml.note_lang ADD COLUMN IF NOT EXISTS rule_category TEXT;
+-- Short app context the model also reads: StreetComplete question and element,
+-- POI name and extra POI types (templates.py). No URLs, versions or dates.
+ALTER TABLE ml.note_lang ADD COLUMN IF NOT EXISTS context TEXT;
 -- Extractor version that produced the row (EXTRACT_VERSION in extract.py).
 -- Rows with an older version are redone on the next extractor run.
 ALTER TABLE ml.note_lang ADD COLUMN IF NOT EXISTS extract_version SMALLINT NOT NULL DEFAULT 0;

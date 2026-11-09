@@ -62,7 +62,7 @@ WATCH_INTERVAL = int(os.environ.get("WATCH_INTERVAL", "300"))
 # Note ids per step. Each step is committed, so it is the unit of progress.
 RANGE_SIZE = int(os.environ.get("RANGE_SIZE", "100000"))
 # Bump when templates.py or the language logic changes: older rows are redone.
-EXTRACT_VERSION = 2
+EXTRACT_VERSION = 3
 
 QUERY = """
 SELECT n.note_id,
@@ -90,9 +90,9 @@ WHERE NOT EXISTS (SELECT 1 FROM ml.note_lang l WHERE l.note_id = n.note_id)
 COLUMNS = ["note_id", "country", "lat", "lon", "created_at", "status", "closed_at", "text"]
 # Columns stored in ml.note_lang.
 LANG_COLUMNS = ["note_id", "lang", "lang_prob", "app", "template", "user_text",
-                "poi_type", "theme_auto", "rule_category"]
+                "poi_type", "theme_auto", "rule_category", "context"]
 OUT_COLUMNS = ["note_id", "country", "lang", "lang_prob", "app", "template", "poi_type",
-               "theme_auto", "rule_category", "lat", "lon", "created_at", "status",
+               "theme_auto", "rule_category", "context", "lat", "lon", "created_at", "status",
                "closed_at", "user_text", "text"]
 # Same format as the labeling page export/import.
 LABEL_CSV_COLUMNS = ["note_id", "lang", "country", "app", "template", "user_text", "text",
@@ -125,6 +125,7 @@ def add_features(df: pd.DataFrame, model) -> pd.DataFrame:
     df["poi_type"] = parsed["poi_type"]
     df["theme_auto"] = parsed["theme"]
     df["rule_category"] = parsed["rule_category"]
+    df["context"] = parsed["context"]
     # Language of the user's words only, never of the app template.
     cleaned = df["user_text"].map(clean_for_lang)
     labels, probs = model.predict(cleaned.str.replace("\n", " ").tolist(), k=1)
@@ -143,7 +144,8 @@ def lang_rows(df: pd.DataFrame):
                r.user_text if has_template else None,
                r.poi_type if isinstance(r.poi_type, str) else None,
                r.theme_auto if isinstance(r.theme_auto, str) else None,
-               r.rule_category if isinstance(r.rule_category, str) else None)
+               r.rule_category if isinstance(r.rule_category, str) else None,
+               r.context if isinstance(r.context, str) else None)
 
 
 def stratified_sample(df: pd.DataFrame, n: int, keys: list[str]) -> pd.DataFrame:
@@ -174,15 +176,16 @@ def setup_schema() -> None:
 
 UPSERT_SQL = """
 INSERT INTO ml.note_lang (note_id, lang, lang_prob, app, template, user_text,
-                          poi_type, theme_auto, rule_category, extract_version)
+                          poi_type, theme_auto, rule_category, context, extract_version)
 SELECT DISTINCT ON (note_id) note_id, lang, lang_prob, app, template, user_text,
-       poi_type, theme_auto, rule_category, %(v)s
+       poi_type, theme_auto, rule_category, context, %(v)s
 FROM stage_note_lang ORDER BY note_id
 ON CONFLICT (note_id) DO UPDATE
 SET lang = EXCLUDED.lang, lang_prob = EXCLUDED.lang_prob, app = EXCLUDED.app,
     template = EXCLUDED.template, user_text = EXCLUDED.user_text,
     poi_type = EXCLUDED.poi_type, theme_auto = EXCLUDED.theme_auto,
-    rule_category = EXCLUDED.rule_category, extract_version = EXCLUDED.extract_version,
+    rule_category = EXCLUDED.rule_category, context = EXCLUDED.context,
+    extract_version = EXCLUDED.extract_version,
     detected_at = now()
 """
 
@@ -283,10 +286,10 @@ def export_csv(path: str) -> None:
             df = pd.DataFrame(rows, columns=COLUMNS)
             feats = pd.DataFrame(conn.execute(
                 "SELECT note_id, lang, lang_prob, app, template, poi_type, theme_auto, "
-                "rule_category, user_text FROM ml.note_lang WHERE note_id = ANY(%s)",
+                "rule_category, context, user_text FROM ml.note_lang WHERE note_id = ANY(%s)",
                 (df["note_id"].tolist(),)).fetchall(),
                 columns=["note_id", "lang", "lang_prob", "app", "template", "poi_type",
-                         "theme_auto", "rule_category", "user_text"])
+                         "theme_auto", "rule_category", "context", "user_text"])
             df = df.merge(feats, on="note_id").drop_duplicates("note_id")
             df["user_text"] = df["user_text"].fillna(df["text"])
             df[OUT_COLUMNS].to_csv(path, mode="w" if first else "a", header=first,

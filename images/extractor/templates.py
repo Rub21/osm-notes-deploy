@@ -4,12 +4,16 @@ Apps (MAPS.ME, Organic Maps, CoMaps, StreetComplete, OnOSM) add long fixed
 text to notes. The model and the language detector should only read what
 the person wrote, plus a short tag for the template.
 
-split_note(text) -> Parsed(template, user_text, poi_type, theme, rule_category)
+split_note(text) -> Parsed(template, user_text, poi_type, theme, rule_category, context)
   template       short code, or None when the note has no app template
   user_text      words written by the person ("" when there are none)
   poi_type       OSM type from the template, e.g. "amenity-pharmacy"
   theme          theme code guessed from poi_type, or None
   rule_category  category set by rule when there is no user text, or None
+  context        short app context the model also reads, or None. URLs, app
+                 versions and dates are left out. Examples:
+                   "Q: What is the surface of this road? · Track · photo"   (StreetComplete)
+                   "name: Locanda il Senatore · also: internet_access-wlan" (MAPS.ME, Organic Maps)
 """
 
 import re
@@ -22,6 +26,7 @@ class Parsed(NamedTuple):
     poi_type: str | None
     theme: str | None
     rule_category: str | None
+    context: str | None = None
 
 
 FLAGS = re.I | re.S
@@ -47,6 +52,15 @@ SC_PREFIXED = re.compile(
 # The signature can be followed by attachments ("Attached photo(s): ...").
 SC_SIGNATURE = re.compile(r"\s*via StreetComplete(_ee)?\b.*$", FLAGS)
 SC_CONTEXT = re.compile(r'^\s*In context of (overlay )?"[^"]*"\s*[–-][^–\n]*[–-]\s*https?://\S+\s*', re.I)
+
+# StreetComplete context: the question the person could not answer, the element
+# label ("Natural Wood", "Felix Goye (Bus Stop)") and the overlay name.
+SC_QUESTION = re.compile(r'Unable to answer\s+"([^"]+)"(?:\s*[–-]\s*([^–\n]*?)\s*[–-]\s*https?://)?', re.I)
+SC_OVERLAY = re.compile(r'In context of (?:overlay )?"([^"]*)"(?:\s*[–-]\s*([^–\n]*?)\s*[–-]\s*https?://)?', re.I)
+SC_PHOTO = re.compile(r"Attached photo\(s\):", re.I)
+POI_NAME = re.compile(r"POI name:\s*(.*?)\s*(?=POI types?:|OSM (?:data version|snapshot date)|#|$)", FLAGS)
+POI_NO_NAME = re.compile(r"POI has no name", re.I)
+CONTEXT_MAX = 160
 
 ONOSM = re.compile(r"onosm\.org submitted note from a business:", re.I)
 ONOSM_FIELD = re.compile(
@@ -96,6 +110,31 @@ def _clean(text: str) -> str:
     return " ".join((text or "").split()).strip(' "')
 
 
+def _context(*parts: str | None) -> str | None:
+    text = " · ".join(_clean(p) for p in parts if p and _clean(p))
+    return text[:CONTEXT_MAX] or None
+
+
+def sc_context(text: str) -> str | None:
+    """Question / overlay, element label and whether photos are attached."""
+    q, o = SC_QUESTION.search(text), SC_OVERLAY.search(text)
+    head = f"Q: {q.group(1)}" if q else (f"overlay: {o.group(1)}" if o else None)
+    label = (q or o).group(2) if (q or o) else None
+    return _context(head, label, "photo" if SC_PHOTO.search(text) else None)
+
+
+def poi_context(text: str, poi_type: str | None) -> str | None:
+    """POI name and the POI types that are not already in poi_type."""
+    m = POI_NAME.search(text)
+    raw = _clean(m.group(1)).rstrip(" .") if m else ""
+    name = f"name: {raw}" if raw else ("no name" if POI_NO_NAME.search(text) else None)
+    types = POI_TYPES.search(text)
+    # Only key-value types ("internet_access-wlan"); the regex can also catch "OSM data version:".
+    extra = [t.lower() for t in types.group(1).split()
+             if "-" in t and ":" not in t and t.lower() != poi_type] if types else []
+    return _context(name, f"also: {' '.join(extra[:3])}" if extra else None)
+
+
 def split_note(text: str) -> Parsed:
     text = text or ""
 
@@ -107,7 +146,7 @@ def split_note(text: str) -> Parsed:
         user = _clean(user)
         rule = "place_changed" if gone and not user else None
         return Parsed("app_place_gone" if gone else "app_poi_data", user, poi_type,
-                      theme_for(poi_type), rule)
+                      theme_for(poi_type), rule, poi_context(text, poi_type))
 
     if APP_HASHTAG.search(text):
         return Parsed("app_note", _clean(APP_HASHTAG.sub("", text)), None, None, None)
@@ -115,11 +154,12 @@ def split_note(text: str) -> Parsed:
     m = SC_PREFIXED.search(text)
     if m:
         template = "sc_unable" if m.group(1).lower().startswith("unable") else "sc_note"
-        return Parsed(template, _clean(SC_ATTACHMENTS.sub("", m.group(3))), None, None, None)
+        return Parsed(template, _clean(SC_ATTACHMENTS.sub("", m.group(3))), None, None, None,
+                      sc_context(text))
 
     if SC_SIGNATURE.search(text):
         user = SC_CONTEXT.sub("", SC_SIGNATURE.sub("", text))
-        return Parsed("sc_note", _clean(user), None, None, None)
+        return Parsed("sc_note", _clean(user), None, None, None, sc_context(text))
 
     if ONOSM.search(text):
         body = ONOSM.sub("", text)
