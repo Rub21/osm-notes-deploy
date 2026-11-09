@@ -499,4 +499,5 @@ def labels_csv(lang: str = "", user: str = "", since: str = "", category: str = 
                              ("country", "app", "template", "poi_type", "user_text", "text")}})
     return StreamingResponse(
         iter([buf.getvalue().encode("utf-8-sig")]), media_type="text/csv",
-        headers={"Content-Disposition": 'attachment; filename="labels.csv"'})
+        headers={"Content-Disposition": 'attachment; filename="labels.csv"',
+                 "Cache-Control": "no-store"})  # Cloudflare caches .csv for 4 h
