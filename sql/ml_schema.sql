@@ -136,6 +136,24 @@ CREATE TABLE IF NOT EXISTS ml.note_suggestions (
 CREATE INDEX IF NOT EXISTS note_suggestions_lang ON ml.note_suggestions (lang);
 ALTER TABLE ml.note_suggestions ADD COLUMN IF NOT EXISTS theme TEXT REFERENCES ml.themes (code);
 
+-- Model predictions for every note (notebooks/infer_colab.ipynb, loaded with
+-- scripts/infer_load.sh). One row per note: the latest run wins.
+-- source = model, or rule (template with no user text, see templates.py).
+CREATE TABLE IF NOT EXISTS ml.note_predictions (
+ note_id         INTEGER PRIMARY KEY,
+ category        TEXT NOT NULL REFERENCES ml.categories (code),
+ category_conf   REAL NOT NULL,
+ category_2      TEXT REFERENCES ml.categories (code),
+ category_2_conf REAL,
+ theme           TEXT REFERENCES ml.themes (code),
+ theme_conf      REAL,
+ source          TEXT NOT NULL,
+ model_version   TEXT NOT NULL,
+ predicted_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS note_predictions_category ON ml.note_predictions (category, category_conf);
+CREATE INDEX IF NOT EXISTS note_predictions_theme ON ml.note_predictions (theme);
+
 -- Limited role for the labeling API: reads public, writes only ml.note_labels.
 DO $$
 BEGIN
@@ -146,7 +164,7 @@ END
 $$;
 
 GRANT USAGE ON SCHEMA ml TO labeler;
-GRANT SELECT ON ml.categories, ml.themes, ml.note_lang TO labeler;
+GRANT SELECT ON ml.categories, ml.themes, ml.note_lang, ml.note_predictions TO labeler;
 GRANT SELECT, INSERT, UPDATE ON ml.note_labels TO labeler;
 GRANT USAGE ON SEQUENCE ml.note_labels_id_seq TO labeler;
 GRANT SELECT, INSERT, UPDATE ON ml.note_suggestions TO labeler;
