@@ -289,8 +289,8 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
 
   <nav role="tablist">
     <button role="tab" data-tab="label" aria-selected="true">Label</button>
-    <button role="tab" data-tab="review" aria-selected="false">Review <span class="pill" id="review-count"></span></button>
-    <button role="tab" data-tab="csv" aria-selected="false">CSV</button>
+    <button role="tab" data-tab="review" aria-selected="false" class="local-only" hidden>Review <span class="pill" id="review-count"></span></button>
+    <button role="tab" data-tab="csv" aria-selected="false" class="local-only" hidden>CSV</button>
     <button role="tab" data-tab="stats" aria-selected="false">Progress</button>
   </nav>
 
@@ -817,7 +817,7 @@ function setLang(lang) {
   store.set("lang", lang);
   history.replaceState(null, "", lang ? `#${encodeURIComponent(lang)}` : location.pathname + location.search);
   loadBatch();
-  if (!$("#tab-review").hidden) loadReview();
+  if (me.local && !$("#tab-review").hidden) loadReview();
 }
 $("#lang").onchange = () => setLang($("#lang").value);
 addEventListener("hashchange", () => {
@@ -829,6 +829,8 @@ addEventListener("hashchange", () => {
   try {
     me = await (await api("/api/me")).json();
     renderAccount();
+    // Review and CSV change many labels at once: only from the server (SSH tunnel).
+    document.querySelectorAll(".local-only").forEach((el) => (el.hidden = !me.local));
     cats = await (await api("/api/categories")).json();
     themes = await (await api("/api/themes")).json();
     renderKeys();
@@ -839,7 +841,7 @@ addEventListener("hashchange", () => {
       sel.innerHTML = `<option value="${esc(start)}">${esc(langName(start))}</option>`;
       setLang(start);
     } else renderCard();
-    loadReview();
+    if (me.local) loadReview();
     loadBoard();
     try {
       const langs = await (await api("/api/langs")).json();

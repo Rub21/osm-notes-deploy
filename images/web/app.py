@@ -10,8 +10,10 @@
                                   only `claude_category` = suggestion to review
 - GET  /api/review?lang=&size=    AI suggestions not reviewed yet
 - GET  /api/stats                 labels per user/language/category
-- GET  /api/labels.csv            all labels with note text (public, filters: lang,
+- GET  /api/labels.csv            all labels with note text (filters: lang,
                                     user, since, category, theme, changed)
+  batch.csv, import, review and labels.csv work only from the server or an SSH
+  tunnel, not through Cloudflare (see local_only).
 - GET  /api/me                    who is logged in
 - GET  /, /api/map/*              map viewer of the model's predictions (see below)
 - GET  /label                      labeling page
@@ -41,7 +43,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -113,6 +115,19 @@ def current_user(request: Request, typed: str | None = None) -> str:
     return typed
 
 
+def is_local(request: Request) -> bool:
+    """True when the request does not come through the Cloudflare tunnel: from the
+    server itself or an SSH tunnel. Cloudflare always adds CF-Connecting-IP."""
+    return "cf-connecting-ip" not in request.headers
+
+
+def local_only(request: Request) -> None:
+    """Bulk tools (label export, CSV import, AI review) only work from the server,
+    so nobody on the internet can download all labels or overwrite many at once."""
+    if not is_local(request):
+        raise HTTPException(404, "Not found")
+
+
 def is_moderator(request: Request) -> bool:
     if "*" in MODERATORS:
         return True
@@ -124,7 +139,7 @@ def is_moderator(request: Request) -> bool:
 @app.get("/api/me")
 def me(request: Request):
     return {"osm_login": OSM_LOGIN, "osm_url": OSM_URL, "user": request.session.get("user"),
-            "moderator": is_moderator(request)}
+            "moderator": is_moderator(request), "local": is_local(request)}
 
 
 @app.get("/auth/login")
@@ -264,7 +279,7 @@ def get_batch(lang: str = Query(..., max_length=8), size: int = Query(50, ge=1, 
     return pick_batch(lang, size)
 
 
-@app.get("/api/batch.csv")
+@app.get("/api/batch.csv", dependencies=[Depends(local_only)])
 def get_batch_csv(lang: str = Query(..., max_length=8),
                   size: int = Query(200, ge=1, le=MAX_BATCH)):
     rows = pick_batch(lang, size)
@@ -375,7 +390,7 @@ def read_csv(raw: bytes) -> list[dict]:
             for row in reader]
 
 
-@app.post("/api/import")
+@app.post("/api/import", dependencies=[Depends(local_only)])
 async def import_csv(request: Request, file: UploadFile = File(...),
                      user: str | None = Form(None)):
     user = current_user(request, user)
@@ -449,7 +464,7 @@ WHERE (%(lang)s = '' OR s.lang = %(lang)s)
 """
 
 
-@app.get("/api/review")
+@app.get("/api/review", dependencies=[Depends(local_only)])
 def review(lang: str = Query("", max_length=8), size: int = Query(25, ge=1, le=200)):
     """AI suggestions nobody has reviewed yet, with the note text."""
     args = {"lang": lang, "n": size}
@@ -483,10 +498,10 @@ def stats():
     return {"by_user": by_user, "by_category": by_cat, "by_theme": by_theme, "claude": claude}
 
 
-@app.get("/api/labels.csv")
+@app.get("/api/labels.csv", dependencies=[Depends(local_only)])
 def labels_csv(lang: str = "", user: str = "", since: str = "", category: str = "",
                theme: str = "", changed: bool = False):
-    """Public, read-only. Optional filters (comma lists for lang/category/theme):
+    """Read-only, from the server only (see local_only). Optional filters (comma lists for lang/category/theme):
     ?lang=es,en&user=Rub21&since=2026-10-30&category=spam&theme=food&changed=1
     changed=1: only notes where the person changed the AI suggestion."""
     def items(v: str) -> list[str]:
