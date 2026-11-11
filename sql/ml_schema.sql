@@ -156,6 +156,33 @@ CREATE TABLE IF NOT EXISTS ml.note_predictions (
 );
 CREATE INDEX IF NOT EXISTS note_predictions_category ON ml.note_predictions (category, category_conf);
 CREATE INDEX IF NOT EXISTS note_predictions_theme ON ml.note_predictions (theme);
+CREATE INDEX IF NOT EXISTS note_predictions_at ON ml.note_predictions (predicted_at);
+
+-- Open notes with their prediction, for the map viewer (/map). The classifier
+-- service fills it from ml.note_predictions and removes closed notes. Notes that
+-- are personal_data (predicted or labeled by a person) are never stored here.
+-- It is a copy because `notes` has no spatial index and is recreated by reloads.
+CREATE TABLE IF NOT EXISTS ml.map_notes (
+ note_id         INTEGER PRIMARY KEY,
+ geom            geometry(Point, 4326) NOT NULL,
+ created_at      TIMESTAMPTZ,
+ country         TEXT,
+ lang            TEXT,
+ app             TEXT,
+ template        TEXT,
+ category        TEXT NOT NULL,
+ category_conf   REAL NOT NULL,
+ category_2      TEXT,
+ category_2_conf REAL,
+ theme           TEXT,
+ theme_conf      REAL,
+ source          TEXT,
+ model_version   TEXT,
+ predicted_at    TIMESTAMPTZ,
+ text            TEXT
+);
+CREATE INDEX IF NOT EXISTS map_notes_geom ON ml.map_notes USING gist (geom);
+CREATE INDEX IF NOT EXISTS map_notes_predicted ON ml.map_notes (predicted_at);
 
 -- Limited role for the labeling API: reads public, writes only ml.note_labels.
 DO $$
@@ -167,7 +194,9 @@ END
 $$;
 
 GRANT USAGE ON SCHEMA ml TO labeler;
-GRANT SELECT ON ml.categories, ml.themes, ml.note_lang, ml.note_predictions TO labeler;
+GRANT SELECT ON ml.categories, ml.themes, ml.note_lang, ml.note_predictions, ml.map_notes TO labeler;
+-- The map hides a note at once when someone labels it personal_data.
+GRANT DELETE ON ml.map_notes TO labeler;
 GRANT SELECT, INSERT, UPDATE ON ml.note_labels TO labeler;
 GRANT USAGE ON SEQUENCE ml.note_labels_id_seq TO labeler;
 GRANT SELECT, INSERT, UPDATE ON ml.note_suggestions TO labeler;

@@ -13,6 +13,8 @@
 - GET  /api/labels.csv            all labels with note text (public, filters: lang,
                                     user, since, category, theme, changed)
 - GET  /api/me                    who is logged in
+- GET  /, /api/map/*              map viewer of the model's predictions (see below)
+- GET  /label                      labeling page
 - GET  /auth/login, /auth/callback, /auth/logout   OSM OAuth 2.0 login
 
 Login: when OSM_CLIENT_ID is set, writes need an OSM login and the label
@@ -40,7 +42,9 @@ from urllib.parse import urlencode
 import httpx
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 from pydantic import BaseModel
@@ -121,6 +125,9 @@ def login(request: Request):
         hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
     state = secrets.token_urlsafe(16)
     request.session.update(oauth_state=state, oauth_verifier=verifier)
+    nxt = request.query_params.get("next", "")
+    if nxt.startswith("/") and not nxt.startswith("//"):   # only local paths
+        request.session["next"] = nxt
     query = urlencode({
         "response_type": "code", "client_id": OSM_CLIENT_ID,
         "redirect_uri": f"{PUBLIC_URL}/auth/callback", "scope": "read_prefs",
@@ -152,13 +159,14 @@ def callback(request: Request, code: str = "", state: str = ""):
     # Only the name and id are kept; the OSM access token is dropped.
     request.session["user"] = {"id": u["id"], "name": u["display_name"],
                                "avatar": (u.get("img") or {}).get("href")}
-    return RedirectResponse("/")
+    return RedirectResponse(request.session.pop("next", None) or "/")
 
 
 @app.get("/auth/logout")
 def logout(request: Request):
     request.session.clear()
-    return RedirectResponse("/")
+    nxt = request.query_params.get("next", "")
+    return RedirectResponse(nxt if nxt.startswith("/") and not nxt.startswith("//") else "/")
 
 
 def categories() -> dict[str, dict]:
@@ -195,6 +203,13 @@ def pick_batch(lang: str, size: int) -> list[dict]:
 
 @app.get("/")
 def index():
+    """The map viewer is the main page."""
+    return FileResponse("/app/static/map/index.html")
+
+
+@app.get("/label")
+def label_page():
+    """Labeling page, for people who want to help."""
     return FileResponse("/app/static/index.html")
 
 
@@ -502,3 +517,241 @@ def labels_csv(lang: str = "", user: str = "", since: str = "", category: str = 
         iter([buf.getvalue().encode("utf-8-sig")]), media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="labels.csv"',
                  "Cache-Control": "no-store"})  # Cloudflare caches .csv for 4 h
+
+
+# ---------------------------------------------------------------------------
+# Map viewer (main page /): open notes with the model's prediction, from ml.map_notes
+# (filled by the classifier service). personal_data notes are never there.
+#
+# - GET  /                          the viewer page (React, built into static/map)
+# - GET  /api/map/options           categories, themes, languages and apps with counts
+# - GET  /api/map/points?bbox=&zoom= points, or grid cells when there are too many
+# - GET  /api/map/list?bbox=&sort=  notes for the sidebar + counts per category
+# - GET  /api/map/note/{id}         one note with full text and people's labels
+# - POST /api/map/feedback          confirm or fix the prediction (saved as a label)
+# - GET  /api/map/export.geojson    filtered notes as GeoJSON (for MapRoulette)
+# Filters (all optional): bbox=w,s,e,n cat=a,b theme=a,b conf=0.9 lang=es,en
+#   app=StreetComplete,none days=30 q=text
+# ---------------------------------------------------------------------------
+
+MAP_POINTS_MAX = 5000
+MAP_EXPORT_MAX = 50000
+MAP_NO_STORE = {"Cache-Control": "no-store"}
+_map_options_cache: dict = {}
+
+
+def _csv_param(request: Request, name: str) -> list[str]:
+    return [x.strip() for x in request.query_params.get(name, "").split(",") if x.strip()][:50]
+
+
+def map_filters(request: Request, skip: tuple[str, ...] = (), bbox_required: bool = False):
+    """SQL WHERE (on ml.map_notes) and params from the query string."""
+    q = request.query_params
+    where, params = ["true"], {}
+    bbox = q.get("bbox", "")
+    if bbox:
+        try:
+            w, s, e, n = (float(x) for x in bbox.split(","))
+        except ValueError:
+            raise HTTPException(400, "bbox = west,south,east,north")
+        params.update(w=max(-180.0, w), s=max(-90.0, s), e=min(180.0, e), n=min(90.0, n))
+        where.append("geom && ST_MakeEnvelope(%(w)s, %(s)s, %(e)s, %(n)s, 4326)")
+    elif bbox_required:
+        raise HTTPException(400, "bbox is required")
+    for name, col in (("cat", "category"), ("theme", "theme"), ("lang", "lang")):
+        if name not in skip and _csv_param(request, name):
+            where.append(f"{col} = ANY(%({name})s)")
+            params[name] = _csv_param(request, name)
+    apps = _csv_param(request, "app")
+    if apps and "app" not in skip:
+        cond = ["app = ANY(%(app)s)"] + (["app IS NULL"] if "none" in apps else [])
+        where.append("(" + " OR ".join(cond) + ")")
+        params["app"] = apps
+    try:
+        conf = float(q.get("conf") or 0)
+        days = int(q.get("days") or 0)
+    except ValueError:
+        raise HTTPException(400, "conf must be a number and days an integer")
+    if conf > 0:
+        where.append("category_conf >= %(conf)s")
+        params["conf"] = conf
+    if days > 0:
+        where.append("created_at >= now() - make_interval(days => %(days)s)")
+        params["days"] = days
+    text = q.get("q", "").strip()[:100]
+    if text:
+        where.append("text ILIKE %(q)s")
+        params["q"] = "%" + text.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_") + "%"
+    return " AND ".join(where), params
+
+
+def _no_store(data) -> JSONResponse:
+    return JSONResponse(jsonable_encoder(data), headers=MAP_NO_STORE)
+
+
+@app.get("/map")
+@app.get("/map/")
+def map_page(request: Request):
+    """Old address of the viewer."""
+    q = request.url.query
+    return RedirectResponse("/" + (f"?{q}" if q else ""))
+
+
+app.mount("/assets", StaticFiles(directory="/app/static/map/assets", check_dir=False),
+          name="map-assets")
+
+
+@app.get("/api/map/options")
+def map_options():
+    """Filter choices. Cached 10 minutes: the counts change slowly."""
+    if _map_options_cache.get("at", 0) > time.time() - 600:
+        return _no_store(_map_options_cache["data"])
+    with pool.connection() as conn:
+        summary = conn.execute("""
+            SELECT count(*) AS total, max(predicted_at) AS updated,
+                   (array_agg(DISTINCT model_version))[1:3] AS models
+            FROM ml.map_notes""").fetchone()
+        langs = conn.execute("""
+            SELECT lang, count(*) AS n FROM ml.map_notes WHERE lang IS NOT NULL
+            GROUP BY 1 ORDER BY 2 DESC LIMIT 40""").fetchall()
+        apps = conn.execute("""
+            SELECT COALESCE(app, 'none') AS app, count(*) AS n FROM ml.map_notes
+            GROUP BY 1 ORDER BY 2 DESC""").fetchall()
+    all_cats = [{k: c[k] for k in ("code", "grp", "name_es", "name_en", "description")}
+                for c in categories().values()]
+    cats = [c for c in all_cats if c["code"] not in ("personal_data", "unsure")]
+    ths = [{k: t[k] for k in ("code", "name_es", "name_en")} for t in themes().values()]
+    data = {**summary, "categories": cats, "all_categories": all_cats, "themes": ths,
+            "langs": langs, "apps": apps}
+    _map_options_cache.update(at=time.time(), data=data)
+    return _no_store(data)
+
+
+@app.get("/api/map/points")
+def map_points(request: Request, zoom: float = Query(2, ge=0, le=24)):
+    """GeoJSON for the map. Up to MAP_POINTS_MAX points; above that, grid cells
+    (~5 per tile width) with the number of notes and the most common category."""
+    where, params = map_filters(request, bbox_required=True)
+    with pool.connection() as conn:
+        n = conn.execute(f"""SELECT count(*) AS n FROM (SELECT 1 FROM ml.map_notes
+                             WHERE {where} LIMIT {MAP_POINTS_MAX + 1}) x""", params).fetchone()["n"]
+        if n <= MAP_POINTS_MAX:
+            rows = conn.execute(f"""
+                SELECT note_id, ST_X(geom) AS lon, ST_Y(geom) AS lat, category, category_conf
+                FROM ml.map_notes WHERE {where}""", params).fetchall()
+            feats = [{"type": "Feature", "id": r["note_id"],
+                      "geometry": {"type": "Point",
+                                   "coordinates": [round(r["lon"], 6), round(r["lat"], 6)]},
+                      "properties": {"id": r["note_id"], "c": r["category"],
+                                     "p": round(r["category_conf"], 3)}} for r in rows]
+            return _no_store({"type": "FeatureCollection", "mode": "points", "features": feats})
+        params["cell"] = 360 / 2 ** zoom / 5
+        rows = conn.execute(f"""
+            SELECT count(*) AS n, avg(ST_X(geom)) AS lon, avg(ST_Y(geom)) AS lat,
+                   mode() WITHIN GROUP (ORDER BY category) AS c
+            FROM ml.map_notes WHERE {where}
+            GROUP BY floor(ST_X(geom) / %(cell)s), floor(ST_Y(geom) / %(cell)s)""",
+            params).fetchall()
+    feats = [{"type": "Feature",
+              "geometry": {"type": "Point", "coordinates": [round(r["lon"], 5), round(r["lat"], 5)]},
+              "properties": {"n": r["n"], "c": r["c"]}} for r in rows]
+    return _no_store({"type": "FeatureCollection", "mode": "grid", "features": feats})
+
+
+MAP_SORT = {"conf": "category_conf DESC, note_id DESC", "low": "category_conf ASC, note_id DESC",
+            "new": "created_at DESC NULLS LAST", "old": "created_at ASC NULLS LAST"}
+MAP_COLUMNS = """note_id, ST_X(geom) AS lon, ST_Y(geom) AS lat, created_at, country, lang, app,
+                 template, category, category_conf, category_2, category_2_conf, theme,
+                 theme_conf, model_version, text"""
+
+
+@app.get("/api/map/list")
+def map_list(request: Request, sort: str = "conf", offset: int = Query(0, ge=0, le=100_000),
+             limit: int = Query(50, ge=1, le=200)):
+    """Notes for the sidebar, plus counts per category with every filter but the
+    category one (so the category chips can show how many each would add)."""
+    where, params = map_filters(request)
+    cwhere, cparams = map_filters(request, skip=("cat",))
+    order = MAP_SORT.get(sort, MAP_SORT["conf"])
+    with pool.connection() as conn:
+        items = conn.execute(f"""SELECT {MAP_COLUMNS} FROM ml.map_notes WHERE {where}
+                                 ORDER BY {order} OFFSET %(off)s LIMIT %(lim)s""",
+                             {**params, "off": offset, "lim": limit}).fetchall()
+        counts = {r["category"]: r["n"] for r in conn.execute(
+            f"SELECT category, count(*) AS n FROM ml.map_notes WHERE {cwhere} GROUP BY 1",
+            cparams)}
+    cats = _csv_param(request, "cat")
+    total = sum(n for c, n in counts.items() if not cats or c in cats)
+    return _no_store({"total": total, "by_category": counts, "items": items})
+
+
+@app.get("/api/map/note/{note_id}")
+def map_note(note_id: int, request: Request):
+    with pool.connection() as conn:
+        row = conn.execute(f"SELECT {MAP_COLUMNS} FROM ml.map_notes WHERE note_id = %s",
+                           (note_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "Note not found or not open")
+        full = conn.execute(NOTES_SQL, {"ids": [note_id]}).fetchone() or {}
+        labels = conn.execute("""
+            SELECT user_name, category, theme, updated_at FROM ml.note_labels
+            WHERE note_id = %s ORDER BY updated_at DESC""", (note_id,)).fetchall()
+    user = (request.session.get("user") or {}).get("name")
+    return _no_store({**row, **{k: full.get(k) for k in
+                                ("poi_type", "context", "user_text", "status")},
+                      "full_text": full.get("text"), "labels": labels,
+                      "my_label": next((lb for lb in labels if lb["user_name"] == user), None)})
+
+
+class FeedbackIn(BaseModel):
+    note_id: int
+    category: str
+    theme: str | None = None
+    user: str | None = None
+
+
+@app.post("/api/map/feedback")
+def map_feedback(body: FeedbackIn, request: Request):
+    """Confirm (same category as the model) or fix a prediction. Saved in
+    ml.note_labels with the OSM user, so it counts in the next training."""
+    user = current_user(request, body.user)
+    if body.category not in categories():
+        raise HTTPException(400, f"Unknown category: {body.category}")
+    if body.theme and body.theme not in themes():
+        raise HTTPException(400, f"Unknown theme: {body.theme}")
+    with pool.connection() as conn:
+        if not conn.execute("SELECT 1 FROM ml.map_notes WHERE note_id = %s",
+                            (body.note_id,)).fetchone():
+            raise HTTPException(404, "Note not found or not open")
+    out = save_labels(user, [(body.note_id, body.category, None, body.theme or None, None)])
+    if body.category == "personal_data":   # hide it now, not at the next classifier run
+        with pool.connection() as conn:
+            conn.execute("DELETE FROM ml.map_notes WHERE note_id = %s", (body.note_id,))
+    return out
+
+
+@app.get("/api/map/export.geojson")
+def map_export(request: Request, download: bool = False):
+    """Filtered notes as GeoJSON, highest confidence first, up to MAP_EXPORT_MAX.
+    MapRoulette can read this URL directly (one task per note)."""
+    where, params = map_filters(request)
+    with pool.connection() as conn:
+        rows = conn.execute(f"""SELECT {MAP_COLUMNS} FROM ml.map_notes WHERE {where}
+                                ORDER BY category_conf DESC LIMIT {MAP_EXPORT_MAX}""",
+                            params).fetchall()
+    names = {c["code"]: c["name_en"] for c in categories().values()}
+    feats = [{"type": "Feature", "id": r["note_id"],
+              "geometry": {"type": "Point", "coordinates": [round(r["lon"], 6), round(r["lat"], 6)]},
+              "properties": {"id": str(r["note_id"]),
+                             "note_url": f"{OSM_URL}/note/{r['note_id']}",
+                             "category": r["category"], "category_name": names.get(r["category"]),
+                             "confidence": round(r["category_conf"], 3), "theme": r["theme"],
+                             "lang": r["lang"], "app": r["app"],
+                             "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                             "text": r["text"], "model_version": r["model_version"]}}
+             for r in rows]
+    headers = dict(MAP_NO_STORE)
+    if download:
+        headers["Content-Disposition"] = 'attachment; filename="osm_notes.geojson"'
+    return JSONResponse({"type": "FeatureCollection", "features": feats},
+                        media_type="application/geo+json", headers=headers)

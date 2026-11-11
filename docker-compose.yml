@@ -112,6 +112,32 @@ services:
     volumes:
       - ./sql:/sql:ro
 
+  # Classifies new open notes on CPU every INTERVAL seconds (ONNX int8 models,
+  # from notebooks/export_onnx_colab.ipynb) and keeps ml.map_notes for the map.
+  # Models: ./models/classifier/<run>/{category,theme}/. Only for new notes
+  # (~1,500/day); to reclassify all open notes with a new model use Colab +
+  # scripts/infer_load.sh, then change CLASSIFIER_MODEL.
+  classifier:
+    build: ./images/classifier
+    image: osm-notes/classifier:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGPORT: 5432
+      PGUSER: ${DB_USER}
+      PGPASSWORD: ${DB_PASSWORD}
+      PGDATABASE: ${DBNAME}
+      MODEL_DIR: /models/${CLASSIFIER_MODEL:-ft_v2_context}
+      INTERVAL: ${CLASSIFIER_INTERVAL:-600}
+      THREADS: ${CLASSIFIER_THREADS:-2}
+    volumes:
+      - ./models/classifier:/models:ro
+    cpus: ${CLASSIFIER_CPUS:-2}
+    mem_limit: ${CLASSIFIER_MEM:-2g}
+
   # Labeling page + API. Needs the ml schema: run the extractor once first.
   # Only on localhost; open it with an SSH tunnel:
   #   ssh -L 8090:127.0.0.1:8090 root@server  ->  http://localhost:8090

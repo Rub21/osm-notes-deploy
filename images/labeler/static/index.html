@@ -257,7 +257,7 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
       <input id="user" type="text" placeholder="usuario" autocomplete="username">
     </div>
     <div class="account" id="account" hidden>
-      <a class="osm-login" id="login" href="/auth/login" hidden>
+      <a class="osm-login" id="login" href="/auth/login?next=/label" hidden>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>
         <span>Entrar con OpenStreetMap</span>
       </a>
@@ -268,7 +268,7 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
           <small>Etiquetas como</small>
           <a id="profile-name" target="_blank" rel="noopener"></a>
         </span>
-        <a class="logout" href="/auth/logout" title="Cerrar sesión">salir</a>
+        <a class="logout" href="/auth/logout?next=/label" title="Cerrar sesión">salir</a>
       </div>
     </div>
     <div class="field">
@@ -346,7 +346,7 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
 </div>
 <footer class="site-foot">
   Proyecto independiente, no es de la OSMF · Notas © colaboradores de OpenStreetMap (ODbL) ·
-  <a href="/privacy">Privacidad / Privacy</a>
+  <a href="/">Mapa / Map</a> · <a href="/privacy">Privacidad / Privacy</a>
 </footer>
 
 <div class="toast" id="toast"></div>
