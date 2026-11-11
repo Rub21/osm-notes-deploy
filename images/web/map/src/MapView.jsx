@@ -7,6 +7,39 @@ const STYLE = "https://tiles.openfreemap.org/styles/positron";
 const EMPTY = { type: "FeatureCollection", features: [] };
 const colorExpr = ["match", ["get", "c"], ...Object.entries(COLORS).flat(), "#555"];
 
+const short = (n) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
+const ORDER = Object.keys(COLORS);
+
+/** SVG donut: one slice per category, in the legend order. */
+function pieElement(cats, n) {
+  const size = n < 10 ? 26 : n < 100 ? 34 : n < 1000 ? 42 : n < 10000 ? 50 : 58;
+  const r = size / 2, r0 = r - Math.max(5, size * 0.17), c = r;
+  const pt = (a, rad) => `${(c + rad * Math.sin(a)).toFixed(2)} ${(c - rad * Math.cos(a)).toFixed(2)}`;
+  const rows = Object.entries(cats).filter(([, v]) => v > 0)
+    .sort((a, b) => (ORDER.indexOf(a[0]) + 99) % 99 - (ORDER.indexOf(b[0]) + 99) % 99);
+  const total = rows.reduce((s, [, v]) => s + v, 0) || 1;
+  let a0 = 0, slices = "";
+  for (const [cat, v] of rows) {
+    const color = COLORS[cat] || "#888";
+    if (v === total) {
+      slices += `<circle cx="${c}" cy="${c}" r="${(r + r0) / 2}" fill="none" stroke="${color}" stroke-width="${r - r0}"/>`;
+      break;
+    }
+    const a1 = a0 + (v / total) * Math.PI * 2;
+    const big = a1 - a0 > Math.PI ? 1 : 0;
+    slices += `<path fill="${color}" d="M${pt(a0, r)}A${r} ${r} 0 ${big} 1 ${pt(a1, r)}L${pt(a1, r0)}A${r0} ${r0} 0 ${big} 0 ${pt(a0, r0)}Z"/>`;
+    a0 = a1;
+  }
+  const el = document.createElement("button");
+  el.className = "pie";
+  el.type = "button";
+  el.title = rows.map(([k, v]) => `${k}: ${v.toLocaleString()}`).join("\n");
+  el.style.width = el.style.height = `${size}px`;
+  el.innerHTML = `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" aria-hidden="true">${slices}`
+    + `<circle cx="${c}" cy="${c}" r="${r0}" fill="#fff"/></svg><span>${short(n)}</span>`;
+  return el;
+}
+
 /** The map. Loads points (or grid cells when zoomed out) for the current view. */
 export default function MapView({ filters, selected, onSelect, onView, flyTo, start, t, onMode }) {
   const box = useRef(null);
@@ -15,6 +48,28 @@ export default function MapView({ filters, selected, onSelect, onView, flyTo, st
   const filtersRef = useRef(filters);
   const selectedRef = useRef(selected);
   const abort = useRef(null);
+  const pies = useRef(new Map());   // key -> maplibregl.Marker
+
+  // Zoomed out: one pie per grid cell, split by category, with the count inside.
+  const drawPies = (m, fc) => {
+    const next = new Map();
+    if (fc.mode === "grid") {
+      for (const f of fc.features) {
+        const { n, c, cats } = f.properties;
+        const at = f.geometry.coordinates;
+        const key = `${at[0]},${at[1]},${n}`;
+        let mk = pies.current.get(key);
+        if (!mk) {
+          const el = pieElement(cats || { [c]: n }, n);
+          el.addEventListener("click", () => m.easeTo({ center: at, zoom: Math.min(m.getZoom() + 2.5, 16) }));
+          mk = new maplibregl.Marker({ element: el }).setLngLat(at).addTo(m);
+        }
+        next.set(key, mk);
+      }
+    }
+    for (const [key, mk] of pies.current) if (!next.has(key)) mk.remove();
+    pies.current = next;
+  };
   const handlers = useRef({ onSelect, onView, onMode });
   handlers.current = { onSelect, onView, onMode };
 
@@ -27,7 +82,8 @@ export default function MapView({ filters, selected, onSelect, onView, flyTo, st
     abort.current = new AbortController();
     api.points(filtersRef.current, bbox, m.getZoom(), abort.current.signal)
       .then((fc) => {
-        m.getSource("notes")?.setData(fc);
+        m.getSource("notes")?.setData(fc.mode === "grid" ? EMPTY : fc);
+        drawPies(m, fc);
         handlers.current.onMode(fc.mode);
       })
       .catch((e) => { if (e.name !== "AbortError") console.warn("points", e); });
@@ -49,29 +105,6 @@ export default function MapView({ filters, selected, onSelect, onView, flyTo, st
     m.addControl(new maplibregl.AttributionControl({ compact: true, customAttribution: t.attribution }));
     m.on("load", () => {
       m.addSource("notes", { type: "geojson", data: EMPTY });
-      m.addLayer({
-        id: "grid", type: "circle", source: "notes", filter: ["has", "n"],
-        paint: {
-          "circle-color": "#1a1a1a",
-          "circle-opacity": ["interpolate", ["linear"], ["sqrt", ["get", "n"]], 1, 0.55, 30, 0.8, 150, 0.9],
-          "circle-radius": ["interpolate", ["linear"], ["sqrt", ["get", "n"]], 1, 8, 30, 18, 150, 30],
-          "circle-stroke-color": colorExpr,
-          "circle-stroke-width": 2,
-          "circle-stroke-opacity": 0.9,
-        },
-      });
-      m.addLayer({
-        id: "grid-count", type: "symbol", source: "notes", filter: ["has", "n"],
-        layout: {
-          "text-field": ["case", [">=", ["get", "n"], 1000],
-            ["concat", ["to-string", ["round", ["/", ["get", "n"], 1000]]], "k"],
-            ["to-string", ["get", "n"]]],
-          "text-font": ["Noto Sans Bold"],
-          "text-size": 10.5,
-          "text-allow-overlap": true,
-        },
-        paint: { "text-color": "#fff" },
-      });
       m.addLayer({
         id: "points", type: "circle", source: "notes", filter: ["!", ["has", "n"]],
         paint: {
@@ -111,14 +144,9 @@ export default function MapView({ filters, selected, onSelect, onView, flyTo, st
       timer = setTimeout(() => { load(); report(); }, 250);
     });
     m.on("click", "points", (e) => handlers.current.onSelect(e.features[0].properties.id));
-    m.on("click", "grid", (e) => {
-      m.easeTo({ center: e.features[0].geometry.coordinates, zoom: Math.min(m.getZoom() + 2.5, 16) });
-    });
-    for (const id of ["points", "grid"]) {
-      m.on("mouseenter", id, () => { m.getCanvas().style.cursor = "pointer"; });
-      m.on("mouseleave", id, () => { m.getCanvas().style.cursor = ""; });
-    }
-    return () => { abort.current?.abort(); m.remove(); };
+    m.on("mouseenter", "points", () => { m.getCanvas().style.cursor = "pointer"; });
+    m.on("mouseleave", "points", () => { m.getCanvas().style.cursor = ""; });
+    return () => { abort.current?.abort(); pies.current.clear(); m.remove(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

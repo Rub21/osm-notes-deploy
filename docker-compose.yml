@@ -160,6 +160,9 @@ services:
       OSM_CLIENT_SECRET: ${OSM_CLIENT_SECRET:-}
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8090}
       SESSION_SECRET: ${SESSION_SECRET:-}
+      # Notes with personal data are shown only to OSM moderators/admins and to
+      # these OSM user names (comma list).
+      MODERATORS: ${MODERATORS:-}
     ports:
       - "127.0.0.1:${LABELER_PORT:-8090}:8000"
     networks:

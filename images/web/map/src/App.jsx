@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, COLORS, PAGE_SIZE, readUrl, writeUrl } from "./api.js";
 import { startLang, TEXT } from "./i18n.js";
+import Filters from "./Filters.jsx";
 import Header from "./Header.jsx";
 import MapView from "./MapView.jsx";
 import NoteDetail from "./NoteDetail.jsx";
@@ -24,6 +25,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState(initial.note);
   const [selected, setSelected] = useState(null);
   const [flyTo, setFlyTo] = useState(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const abort = useRef(null);
 
   const setLang = (l) => {
@@ -75,11 +77,12 @@ export default function App() {
     <div className="shell">
     <Header t={t} lang={lang} setLang={setLang} me={me} options={options} />
     <div className="app">
-      <Sidebar t={t} lang={lang} options={options} names={names}
-               filters={filters} setFilters={setFilters} sort={sort} setSort={setSort}
+      <Sidebar t={t} lang={lang} names={names}
+               filters={filters} sort={sort} setSort={setSort}
+               open={filtersOpen} onFilters={() => setFiltersOpen(!filtersOpen)}
                list={list} loading={loading} page={page} setPage={goPage}
                onRefresh={() => loadList(page)} selectedId={selectedId} onSelect={select}
-               bbox={view?.bbox} mode={mode} />
+               mode={mode} />
       <main className="stage">
         <PlaceSearch t={t} lang={lang} onFly={setFlyTo} />
         <MapView filters={filters} selected={selected} onSelect={(id) => select(id)} onView={setView}
@@ -90,6 +93,10 @@ export default function App() {
                       onClose={() => { setSelectedId(null); setSelected(null); }} onLoaded={onLoaded} />
         ) : null}
         <Legend t={t} names={names} />
+        {filtersOpen ? (
+          <Filters t={t} me={me} options={options} names={names} filters={filters} setFilters={setFilters}
+                   list={list} bbox={view?.bbox} onClose={() => setFiltersOpen(false)} />
+        ) : null}
       </main>
     </div>
     </div>

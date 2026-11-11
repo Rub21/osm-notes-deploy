@@ -1,16 +1,12 @@
-import { useState } from "react";
-import { api, colorOf, COLORS, EMPTY_FILTERS, PAGE_SIZE } from "./api.js";
+import { colorOf, COLORS, PAGE_SIZE } from "./api.js";
 import { ago } from "./i18n.js";
 
 const fmt = (n) => (n == null ? "" : n.toLocaleString());
-const CONF = [0, 0.5, 0.7, 0.9];
-const AGES = [["anyAge", 0], ["days30", 30], ["year", 365], ["years3", 1095]];
 
 /** Left panel, like OSMCha: order + filters on top, the list of notes, pages. */
 export default function Sidebar(props) {
-  const { t, lang, names, options, filters, setFilters, sort, setSort,
-          list, loading, page, setPage, onRefresh, selectedId, onSelect, bbox, mode } = props;
-  const [open, setOpen] = useState(false);
+  const { t, lang, names, filters, sort, setSort, open, onFilters,
+          list, loading, page, setPage, onRefresh, selectedId, onSelect, mode } = props;
   const active = filters.cat.length + ["theme", "lang", "app", "conf", "days", "q"]
     .filter((k) => filters[k]).length;
   const pages = list ? Math.max(1, Math.ceil(list.total / PAGE_SIZE)) : 1;
@@ -24,7 +20,7 @@ export default function Sidebar(props) {
           <option value="conf">{t.sortConf}</option>
           <option value="low">{t.sortLow}</option>
         </select>
-        <button className={`ghost filters-btn${open ? " on" : ""}`} onClick={() => setOpen(!open)} aria-expanded={open}>
+        <button className={`ghost filters-btn${open ? " on" : ""}`} onClick={onFilters} aria-expanded={open}>
           {t.filters}{active ? <span className="badge">{active}</span> : null}
         </button>
       </div>
@@ -34,10 +30,8 @@ export default function Sidebar(props) {
       </div>
       <Mix t={t} names={names} byCat={list?.by_category} />
 
-      {open ? (
-        <Filters {...{ t, options, names, filters, setFilters, list, bbox }} onClose={() => setOpen(false)} />
-      ) : (
-        <>
+      <>
+          {list?.restricted ? <p className="restricted">🔒 {t.restricted}</p> : null}
           {mode === "grid" ? <p className="hint">{t.zoomIn}</p> : null}
           <ol className="list">
             {list?.items.map((n) => (
@@ -65,11 +59,10 @@ export default function Sidebar(props) {
               </li>
             ))}
           </ol>
-          {list && !list.items.length && !loading ? <p className="muted pad">{t.empty}</p> : null}
+          {list && !list.items.length && !loading && !list.restricted ? <p className="muted pad">{t.empty}</p> : null}
           {loading && !list ? <p className="muted pad">{t.loading}</p> : null}
           {pages > 1 ? <Pager page={page} pages={pages} setPage={setPage} /> : null}
-        </>
-      )}
+      </>
     </aside>
   );
 }
@@ -107,105 +100,5 @@ function Pager({ page, pages, setPage }) {
       ))}
       <button disabled={page >= pages - 1} onClick={() => setPage(page + 1)} aria-label="next">→</button>
     </nav>
-  );
-}
-
-function Filters({ t, options, names, filters, setFilters, list, bbox, onClose }) {
-  const [text, setText] = useState(filters.q);
-  const [copied, setCopied] = useState(false);
-  const set = (patch) => setFilters({ ...filters, ...patch });
-  const toggleCat = (code) => set({
-    cat: filters.cat.includes(code) ? filters.cat.filter((c) => c !== code) : [...filters.cat, code],
-  });
-  const groups = [["map", t.groupMap], ["close", t.groupClose]].map(([grp, title]) => ({
-    grp, title, cats: (options?.categories || []).filter((c) => (grp === "map") === (c.grp === "map")),
-  }));
-  const toggleGroup = (cats) => {
-    const codes = cats.map((c) => c.code);
-    const all = codes.every((c) => filters.cat.includes(c));
-    set({ cat: all ? filters.cat.filter((c) => !codes.includes(c)) : [...new Set([...filters.cat, ...codes])] });
-  };
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(api.exportUrl(filters, bbox, false));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    } catch { /* clipboard blocked */ }
-  };
-
-  return (
-    <section className="filters">
-      <form className="search" onSubmit={(e) => { e.preventDefault(); set({ q: text.trim() }); }}>
-        <label htmlFor="q">{t.text}</label>
-        <input id="q" value={text} onChange={(e) => setText(e.target.value)} placeholder={t.textHint} />
-      </form>
-
-      {groups.map(({ grp, title, cats }) => (
-        <div key={grp} className="group">
-          <button className="group-title" onClick={() => toggleGroup(cats)}>{title}</button>
-          <div className="chips">
-            {cats.map((c) => {
-              const on = filters.cat.includes(c.code);
-              return (
-                <button key={c.code} className={`chip${on ? " on" : ""}`} style={{ "--cat": colorOf(c.code) }}
-                        onClick={() => toggleCat(c.code)} title={c.description} aria-pressed={on}>
-                  <span className="dot" />{names.cat[c.code]}
-                  <span className="n">{fmt(list?.by_category?.[c.code] || 0)}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      ))}
-
-      <div className="selects">
-        <label>{t.theme}
-          <select value={filters.theme} onChange={(e) => set({ theme: e.target.value })}>
-            <option value="">{t.all}</option>
-            {options?.themes.map((th) => <option key={th.code} value={th.code}>{names.theme[th.code]}</option>)}
-          </select>
-        </label>
-        <label>{t.lang}
-          <select value={filters.lang} onChange={(e) => set({ lang: e.target.value })}>
-            <option value="">{t.all}</option>
-            {options?.langs.map((l) => <option key={l.lang} value={l.lang}>{l.lang} ({fmt(l.n)})</option>)}
-          </select>
-        </label>
-        <label>{t.app}
-          <select value={filters.app} onChange={(e) => set({ app: e.target.value })}>
-            <option value="">{t.all}</option>
-            {options?.apps.map((a) => (
-              <option key={a.app} value={a.app}>{a.app === "none" || a.app === "other" ? t.noApp : a.app} ({fmt(a.n)})</option>
-            ))}
-          </select>
-        </label>
-        <label>{t.age}
-          <select value={filters.days} onChange={(e) => set({ days: Number(e.target.value) })}>
-            {AGES.map(([k, d]) => <option key={d} value={d}>{t[k]}</option>)}
-          </select>
-        </label>
-      </div>
-      <div className="conf" role="group" aria-label={t.conf}>
-        <span>{t.conf}</span>
-        {CONF.map((c) => (
-          <button key={c} className={filters.conf === c ? "on" : ""} onClick={() => set({ conf: c })}>
-            {c ? `≥ ${c}` : t.all}
-          </button>
-        ))}
-      </div>
-
-      <div className="filters-foot">
-        <button className="link" onClick={() => { setText(""); setFilters(EMPTY_FILTERS); }}>{t.clear}</button>
-        <button className="primary" onClick={onClose}>{t.showList}</button>
-      </div>
-
-      <div className="export">
-        <strong>{t.export}</strong>
-        <a href={api.exportUrl(filters, bbox, true)}>{t.download}</a>
-        <button onClick={copy}>{copied ? t.copied : t.copyUrl}</button>
-        <p className="muted">{t.exportHint}</p>
-      </div>
-      <p className="about">{t.about}</p>
-    </section>
   );
 }

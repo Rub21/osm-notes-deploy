@@ -105,7 +105,9 @@ DELETE FROM ml.map_notes m
 WHERE m.category = 'personal_data'
    OR NOT EXISTS (SELECT 1 FROM notes n WHERE n.note_id = m.note_id AND n.status::text = 'open')
    OR EXISTS (SELECT 1 FROM ml.note_predictions p
-              WHERE p.note_id = m.note_id AND p.category = 'personal_data')
+              WHERE p.note_id = m.note_id AND p.category = 'personal_data'
+                AND NOT EXISTS (SELECT 1 FROM ml.note_labels h   -- a moderator said it is not
+                                WHERE h.note_id = m.note_id AND h.category <> 'personal_data'))
    OR EXISTS (SELECT 1 FROM ml.note_labels h
               WHERE h.note_id = m.note_id AND h.category = 'personal_data')
 """

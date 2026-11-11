@@ -114,7 +114,6 @@ export default function NoteDetail({ id, t, names, options, me, onClose, onLoade
               <div className="fix">
                 <select value={cat} onChange={(e) => setCat(e.target.value)}>
                   {options.categories.map((c) => <option key={c.code} value={c.code}>{names.cat[c.code]}</option>)}
-                  <option value="personal_data">{names.cat.personal_data || "personal_data"}</option>
                 </select>
                 <select value={theme} onChange={(e) => setTheme(e.target.value)}>
                   {options.themes.map((th) => <option key={th.code} value={th.code}>{names.theme[th.code]}</option>)}

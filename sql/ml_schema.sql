@@ -159,8 +159,8 @@ CREATE INDEX IF NOT EXISTS note_predictions_theme ON ml.note_predictions (theme)
 CREATE INDEX IF NOT EXISTS note_predictions_at ON ml.note_predictions (predicted_at);
 
 -- Open notes with their prediction, for the map viewer (/map). The classifier
--- service fills it from ml.note_predictions and removes closed notes. Notes that
--- are personal_data (predicted or labeled by a person) are never stored here.
+-- service fills it from ml.note_predictions and removes closed notes. Notes with
+-- personal data are never stored here (see ml.private_notes).
 -- It is a copy because `notes` has no spatial index and is recreated by reloads.
 CREATE TABLE IF NOT EXISTS ml.map_notes (
  note_id         INTEGER PRIMARY KEY,
@@ -184,6 +184,34 @@ CREATE TABLE IF NOT EXISTS ml.map_notes (
 CREATE INDEX IF NOT EXISTS map_notes_geom ON ml.map_notes USING gist (geom);
 CREATE INDEX IF NOT EXISTS map_notes_predicted ON ml.map_notes (predicted_at);
 
+-- Open notes with personal data (predicted, or labeled by a person), same columns
+-- as ml.map_notes. Only OSM moderators see them in the map; the public gets a count.
+-- A person's label wins: a note a person labeled as something else is not here.
+CREATE OR REPLACE VIEW ml.private_notes AS
+SELECT p.note_id,
+       ST_SetSRID(ST_MakePoint(n.longitude::float8, n.latitude::float8), 4326)::geometry(Point, 4326) AS geom,
+       n.created_at, COALESCE(c.country_name_en, c.country_name) AS country,
+       l.lang, l.app, l.template,
+       'personal_data'::text AS category,
+       (CASE WHEN p.category = 'personal_data' THEN p.category_conf ELSE 1 END)::real AS category_conf,
+       p.category_2, p.category_2_conf, p.theme, p.theme_conf,
+       CASE WHEN p.category = 'personal_data' THEN p.source ELSE 'person' END AS source,
+       p.model_version, p.predicted_at,
+       left(COALESCE(l.user_text, t.body, ''), 300) AS text
+FROM ml.note_predictions p
+JOIN notes n ON n.note_id = p.note_id AND n.status::text = 'open'
+JOIN ml.note_lang l ON l.note_id = p.note_id
+LEFT JOIN countries c ON c.country_id = n.id_country
+LEFT JOIN LATERAL (
+  SELECT x.body FROM note_comments nc
+  JOIN note_comments_text x ON x.note_id = nc.note_id AND x.sequence_action = nc.sequence_action
+  WHERE nc.note_id = p.note_id AND nc.event = 'opened' LIMIT 1) t ON true
+WHERE (p.category = 'personal_data'
+       AND NOT EXISTS (SELECT 1 FROM ml.note_labels h
+                       WHERE h.note_id = p.note_id AND h.category <> 'personal_data'))
+   OR EXISTS (SELECT 1 FROM ml.note_labels h
+              WHERE h.note_id = p.note_id AND h.category = 'personal_data');
+
 -- Limited role for the labeling API: reads public, writes only ml.note_labels.
 DO $$
 BEGIN
@@ -194,9 +222,11 @@ END
 $$;
 
 GRANT USAGE ON SCHEMA ml TO labeler;
-GRANT SELECT ON ml.categories, ml.themes, ml.note_lang, ml.note_predictions, ml.map_notes TO labeler;
--- The map hides a note at once when someone labels it personal_data.
-GRANT DELETE ON ml.map_notes TO labeler;
+GRANT SELECT ON ml.categories, ml.themes, ml.note_lang, ml.note_predictions, ml.map_notes,
+                ml.private_notes TO labeler;
+-- The map hides a note at once when someone labels it personal_data, and shows it
+-- again when a moderator says it is not.
+GRANT INSERT, DELETE ON ml.map_notes TO labeler;
 GRANT SELECT, INSERT, UPDATE ON ml.note_labels TO labeler;
 GRANT USAGE ON SEQUENCE ml.note_labels_id_seq TO labeler;
 GRANT SELECT, INSERT, UPDATE ON ml.note_suggestions TO labeler;

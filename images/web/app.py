@@ -57,6 +57,9 @@ OSM_CLIENT_SECRET = os.environ.get("OSM_CLIENT_SECRET", "")
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "http://localhost:8090").rstrip("/")
 SESSION_SECRET = os.environ.get("SESSION_SECRET") or secrets.token_urlsafe(32)
 OSM_LOGIN = bool(OSM_CLIENT_ID)
+# Who can see notes with personal data: OSM moderators/admins (role read at login),
+# plus the OSM names in MODERATORS (comma list). "*" = everyone (local dev only).
+MODERATORS = {x.strip().lower() for x in os.environ.get("MODERATORS", "").split(",") if x.strip()}
 MAX_BATCH = 1000
 NO_THEME_CATEGORIES = {"spam", "empty", "personal_data"}
 CSV_COLUMNS = ["note_id", "lang", "country", "app", "template", "user_text", "text",
@@ -110,9 +113,18 @@ def current_user(request: Request, typed: str | None = None) -> str:
     return typed
 
 
+def is_moderator(request: Request) -> bool:
+    if "*" in MODERATORS:
+        return True
+    user = request.session.get("user") or {}
+    return bool(user) and (bool({"moderator", "administrator"} & set(user.get("roles") or []))
+                           or user.get("name", "").lower() in MODERATORS)
+
+
 @app.get("/api/me")
 def me(request: Request):
-    return {"osm_login": OSM_LOGIN, "osm_url": OSM_URL, "user": request.session.get("user")}
+    return {"osm_login": OSM_LOGIN, "osm_url": OSM_URL, "user": request.session.get("user"),
+            "moderator": is_moderator(request)}
 
 
 @app.get("/auth/login")
@@ -158,7 +170,8 @@ def callback(request: Request, code: str = "", state: str = ""):
     u = details.json()["user"]
     # Only the name and id are kept; the OSM access token is dropped.
     request.session["user"] = {"id": u["id"], "name": u["display_name"],
-                               "avatar": (u.get("img") or {}).get("href")}
+                               "avatar": (u.get("img") or {}).get("href"),
+                               "roles": [r for r in (u.get("roles") or []) if isinstance(r, str)]}
     return RedirectResponse(request.session.pop("next", None) or "/")
 
 
@@ -521,7 +534,9 @@ def labels_csv(lang: str = "", user: str = "", since: str = "", category: str = 
 
 # ---------------------------------------------------------------------------
 # Map viewer (main page /): open notes with the model's prediction, from ml.map_notes
-# (filled by the classifier service). personal_data notes are never there.
+# (filled by the classifier service). personal_data notes are never there: they are in
+# the ml.private_notes view, shown only to moderators when they filter by that category.
+# Everyone else gets only the total count (options.private_total).
 #
 # - GET  /                          the viewer page (React, built into static/map)
 # - GET  /api/map/options           categories, themes, languages and apps with counts
@@ -585,6 +600,19 @@ def map_filters(request: Request, skip: tuple[str, ...] = (), bbox_required: boo
     return " AND ".join(where), params
 
 
+PRIVATE = "personal_data"
+MAP_ALL = "(SELECT * FROM ml.map_notes UNION ALL SELECT * FROM ml.private_notes) m"
+
+
+def map_source(request: Request) -> tuple[str, bool]:
+    """Table to read and whether personal_data was asked for without the right."""
+    if PRIVATE not in _csv_param(request, "cat"):
+        return "ml.map_notes", False
+    if is_moderator(request):
+        return MAP_ALL, False
+    return "ml.map_notes", True
+
+
 def _no_store(data) -> JSONResponse:
     return JSONResponse(jsonable_encoder(data), headers=MAP_NO_STORE)
 
@@ -617,12 +645,15 @@ def map_options():
         apps = conn.execute("""
             SELECT COALESCE(app, 'none') AS app, count(*) AS n FROM ml.map_notes
             GROUP BY 1 ORDER BY 2 DESC""").fetchall()
+        private_total = conn.execute(
+            "SELECT count(*) AS n FROM ml.private_notes").fetchone()["n"]
     all_cats = [{k: c[k] for k in ("code", "grp", "name_es", "name_en", "description")}
                 for c in categories().values()]
-    cats = [c for c in all_cats if c["code"] not in ("personal_data", "unsure")]
+    # personal_data is listed (with a lock in the page); only moderators can open it.
+    cats = [c for c in all_cats if c["code"] != "unsure"]
     ths = [{k: t[k] for k in ("code", "name_es", "name_en")} for t in themes().values()]
     data = {**summary, "categories": cats, "all_categories": all_cats, "themes": ths,
-            "langs": langs, "apps": apps}
+            "langs": langs, "apps": apps, "private_total": private_total}
     _map_options_cache.update(at=time.time(), data=data)
     return _no_store(data)
 
@@ -632,13 +663,14 @@ def map_points(request: Request, zoom: float = Query(2, ge=0, le=24)):
     """GeoJSON for the map. Up to MAP_POINTS_MAX points; above that, grid cells
     (~5 per tile width) with the number of notes and the most common category."""
     where, params = map_filters(request, bbox_required=True)
+    src, _ = map_source(request)
     with pool.connection() as conn:
-        n = conn.execute(f"""SELECT count(*) AS n FROM (SELECT 1 FROM ml.map_notes
+        n = conn.execute(f"""SELECT count(*) AS n FROM (SELECT 1 FROM {src}
                              WHERE {where} LIMIT {MAP_POINTS_MAX + 1}) x""", params).fetchone()["n"]
         if n <= MAP_POINTS_MAX:
             rows = conn.execute(f"""
                 SELECT note_id, ST_X(geom) AS lon, ST_Y(geom) AS lat, category, category_conf
-                FROM ml.map_notes WHERE {where}""", params).fetchall()
+                FROM {src} WHERE {where}""", params).fetchall()
             feats = [{"type": "Feature", "id": r["note_id"],
                       "geometry": {"type": "Point",
                                    "coordinates": [round(r["lon"], 6), round(r["lat"], 6)]},
@@ -647,14 +679,18 @@ def map_points(request: Request, zoom: float = Query(2, ge=0, le=24)):
             return _no_store({"type": "FeatureCollection", "mode": "points", "features": feats})
         params["cell"] = 360 / 2 ** zoom / 5
         rows = conn.execute(f"""
-            SELECT count(*) AS n, avg(ST_X(geom)) AS lon, avg(ST_Y(geom)) AS lat,
-                   mode() WITHIN GROUP (ORDER BY category) AS c
-            FROM ml.map_notes WHERE {where}
-            GROUP BY floor(ST_X(geom) / %(cell)s), floor(ST_Y(geom) / %(cell)s)""",
-            params).fetchall()
+            WITH g AS (
+              SELECT floor(ST_X(geom) / %(cell)s) AS cx, floor(ST_Y(geom) / %(cell)s) AS cy,
+                     category, count(*) AS n, sum(ST_X(geom)) AS sx, sum(ST_Y(geom)) AS sy
+              FROM {src} WHERE {where} GROUP BY 1, 2, 3)
+            SELECT sum(n)::int AS n, sum(sx) / sum(n) AS lon, sum(sy) / sum(n) AS lat,
+                   (array_agg(category ORDER BY n DESC))[1] AS c,
+                   jsonb_object_agg(category, n) AS cats
+            FROM g GROUP BY cx, cy""", params).fetchall()
+    # n = notes in the cell, c = most common category, cats = notes per category (pie)
     feats = [{"type": "Feature",
               "geometry": {"type": "Point", "coordinates": [round(r["lon"], 5), round(r["lat"], 5)]},
-              "properties": {"n": r["n"], "c": r["c"]}} for r in rows]
+              "properties": {"n": r["n"], "c": r["c"], "cats": r["cats"]}} for r in rows]
     return _no_store({"type": "FeatureCollection", "mode": "grid", "features": feats})
 
 
@@ -673,22 +709,29 @@ def map_list(request: Request, sort: str = "conf", offset: int = Query(0, ge=0, 
     where, params = map_filters(request)
     cwhere, cparams = map_filters(request, skip=("cat",))
     order = MAP_SORT.get(sort, MAP_SORT["conf"])
+    src, restricted = map_source(request)
+    moderator = is_moderator(request)
     with pool.connection() as conn:
-        items = conn.execute(f"""SELECT {MAP_COLUMNS} FROM ml.map_notes WHERE {where}
+        items = conn.execute(f"""SELECT {MAP_COLUMNS} FROM {src} WHERE {where}
                                  ORDER BY {order} OFFSET %(off)s LIMIT %(lim)s""",
                              {**params, "off": offset, "lim": limit}).fetchall()
         counts = {r["category"]: r["n"] for r in conn.execute(
             f"SELECT category, count(*) AS n FROM ml.map_notes WHERE {cwhere} GROUP BY 1",
             cparams)}
+        if moderator:   # others only get the world total, never a count for a small area
+            counts[PRIVATE] = conn.execute(
+                f"SELECT count(*) AS n FROM ml.private_notes WHERE {cwhere}", cparams).fetchone()["n"]
     cats = _csv_param(request, "cat")
     total = sum(n for c, n in counts.items() if not cats or c in cats)
-    return _no_store({"total": total, "by_category": counts, "items": items})
+    return _no_store({"total": total, "by_category": counts, "items": items,
+                      "restricted": restricted})
 
 
 @app.get("/api/map/note/{note_id}")
 def map_note(note_id: int, request: Request):
+    src = MAP_ALL if is_moderator(request) else "ml.map_notes"
     with pool.connection() as conn:
-        row = conn.execute(f"SELECT {MAP_COLUMNS} FROM ml.map_notes WHERE note_id = %s",
+        row = conn.execute(f"SELECT {MAP_COLUMNS} FROM {src} WHERE note_id = %s",
                            (note_id,)).fetchone()
         if not row:
             raise HTTPException(404, "Note not found or not open")
@@ -720,13 +763,25 @@ def map_feedback(body: FeedbackIn, request: Request):
     if body.theme and body.theme not in themes():
         raise HTTPException(400, f"Unknown theme: {body.theme}")
     with pool.connection() as conn:
-        if not conn.execute("SELECT 1 FROM ml.map_notes WHERE note_id = %s",
-                            (body.note_id,)).fetchone():
+        public = conn.execute("SELECT 1 FROM ml.map_notes WHERE note_id = %s",
+                              (body.note_id,)).fetchone()
+        private = None if public or not is_moderator(request) else conn.execute(
+            "SELECT * FROM ml.private_notes WHERE note_id = %s", (body.note_id,)).fetchone()
+        if not public and not private:
             raise HTTPException(404, "Note not found or not open")
     out = save_labels(user, [(body.note_id, body.category, None, body.theme or None, None)])
-    if body.category == "personal_data":   # hide it now, not at the next classifier run
-        with pool.connection() as conn:
+    with pool.connection() as conn:
+        if body.category == PRIVATE:   # hide it now, not at the next classifier run
             conn.execute("DELETE FROM ml.map_notes WHERE note_id = %s", (body.note_id,))
+        elif private:                  # a moderator says it has no personal data: show it
+            conn.execute("""
+                INSERT INTO ml.map_notes (note_id, geom, created_at, country, lang, app, template,
+                    category, category_conf, theme, source, model_version, predicted_at, text)
+                VALUES (%(note_id)s, %(geom)s, %(created_at)s, %(country)s, %(lang)s, %(app)s,
+                    %(template)s, %(cat)s, 1, %(th)s, 'person', %(model_version)s,
+                    %(predicted_at)s, %(text)s)
+                ON CONFLICT (note_id) DO NOTHING""",
+                {**private, "cat": body.category, "th": body.theme or None})
     return out
 
 
