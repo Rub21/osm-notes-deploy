@@ -55,7 +55,7 @@ export default function MapView({ filters, selected, onSelect, onView, flyTo, st
           "circle-color": colorExpr,
           "circle-opacity": 0.78,
           "circle-radius": ["interpolate", ["linear"], ["sqrt", ["get", "n"]], 1, 7, 30, 20, 150, 34],
-          "circle-stroke-color": "#fbf9f3",
+          "circle-stroke-color": "#ffffff",
           "circle-stroke-width": 1.5,
         },
       });
@@ -77,7 +77,7 @@ export default function MapView({ filters, selected, onSelect, onView, flyTo, st
           "circle-color": colorExpr,
           "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 3.5, 10, 6, 16, 9],
           "circle-opacity": ["+", 0.35, ["*", 0.65, ["get", "p"]]],
-          "circle-stroke-color": "#fbf9f3",
+          "circle-stroke-color": "#ffffff",
           "circle-stroke-width": 1,
         },
       });
@@ -87,8 +87,8 @@ export default function MapView({ filters, selected, onSelect, onView, flyTo, st
         paint: {
           "circle-color": "rgba(0,0,0,0)",
           "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 9, 16, 15],
-          "circle-stroke-color": "#e2591b",
-          "circle-stroke-width": 3,
+          "circle-stroke-color": "#111111",
+          "circle-stroke-width": 2.5,
         },
       });
       ready.current = true;

@@ -6,8 +6,8 @@ export const COLORS = {
   wrong_name: "#8e44ad",
   wrong_road: "#2b6cb0",
   other_data: "#0f8b8d",
-  not_mappable: "#7a7f87",
-  empty: "#b5aa99",
+  not_mappable: "#8a8f98",
+  empty: "#c3c6cc",
   spam: "#c0392b",
 };
 export const colorOf = (c) => COLORS[c] || "#555";
