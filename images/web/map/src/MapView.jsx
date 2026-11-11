@@ -52,11 +52,12 @@ export default function MapView({ filters, selected, onSelect, onView, flyTo, st
       m.addLayer({
         id: "grid", type: "circle", source: "notes", filter: ["has", "n"],
         paint: {
-          "circle-color": colorExpr,
-          "circle-opacity": 0.78,
-          "circle-radius": ["interpolate", ["linear"], ["sqrt", ["get", "n"]], 1, 7, 30, 20, 150, 34],
-          "circle-stroke-color": "#ffffff",
-          "circle-stroke-width": 1.5,
+          "circle-color": "#1a1a1a",
+          "circle-opacity": ["interpolate", ["linear"], ["sqrt", ["get", "n"]], 1, 0.55, 30, 0.8, 150, 0.9],
+          "circle-radius": ["interpolate", ["linear"], ["sqrt", ["get", "n"]], 1, 8, 30, 18, 150, 30],
+          "circle-stroke-color": colorExpr,
+          "circle-stroke-width": 2,
+          "circle-stroke-opacity": 0.9,
         },
       });
       m.addLayer({
@@ -66,7 +67,7 @@ export default function MapView({ filters, selected, onSelect, onView, flyTo, st
             ["concat", ["to-string", ["round", ["/", ["get", "n"], 1000]]], "k"],
             ["to-string", ["get", "n"]]],
           "text-font": ["Noto Sans Bold"],
-          "text-size": 11,
+          "text-size": 10.5,
           "text-allow-overlap": true,
         },
         paint: { "text-color": "#fff" },

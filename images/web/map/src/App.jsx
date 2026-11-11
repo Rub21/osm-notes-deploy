@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, PAGE_SIZE, readUrl, writeUrl } from "./api.js";
+import { api, COLORS, PAGE_SIZE, readUrl, writeUrl } from "./api.js";
 import { startLang, TEXT } from "./i18n.js";
+import Header from "./Header.jsx";
 import MapView from "./MapView.jsx";
 import NoteDetail from "./NoteDetail.jsx";
 import PlaceSearch from "./PlaceSearch.jsx";
@@ -71,8 +72,10 @@ export default function App() {
   };
 
   return (
+    <div className="shell">
+    <Header t={t} lang={lang} setLang={setLang} me={me} options={options} />
     <div className="app">
-      <Sidebar t={t} lang={lang} setLang={setLang} me={me} options={options} names={names}
+      <Sidebar t={t} lang={lang} options={options} names={names}
                filters={filters} setFilters={setFilters} sort={sort} setSort={setSort}
                list={list} loading={loading} page={page} setPage={goPage}
                onRefresh={() => loadList(page)} selectedId={selectedId} onSelect={select}
@@ -86,8 +89,24 @@ export default function App() {
                       options={options || { categories: [], themes: [] }}
                       onClose={() => { setSelectedId(null); setSelected(null); }} onLoaded={onLoaded} />
         ) : null}
+        <Legend t={t} names={names} />
       </main>
     </div>
+    </div>
+  );
+}
+
+/** Small key of the point colors, bottom left of the map. */
+function Legend({ t, names }) {
+  return (
+    <details className="legend" open>
+      <summary>{t.legend}</summary>
+      <ul>
+        {Object.entries(COLORS).map(([c, color]) => (
+          <li key={c}><i style={{ background: color }} />{names.cat[c] || c}</li>
+        ))}
+      </ul>
+    </details>
   );
 }
 

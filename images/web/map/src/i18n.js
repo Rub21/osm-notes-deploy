@@ -67,6 +67,8 @@ export const TEXT = {
     refresh: "Reload",
     showList: "Show notes",
     helpHint: "The model learns from people's labels.",
+    legend: "Categories",
+    mix: "What the notes in view need",
   },
   es: {
     title: "Mapa de notas OSM",
@@ -135,6 +137,8 @@ export const TEXT = {
     refresh: "Recargar",
     showList: "Ver notas",
     helpHint: "El modelo aprende de las etiquetas de las personas.",
+    legend: "Categorías",
+    mix: "Qué necesitan las notas en vista",
   },
 };
 
@@ -144,4 +148,15 @@ export function startLang() {
     if (saved === "en" || saved === "es") return saved;
   } catch { /* private mode */ }
   return (navigator.language || "en").toLowerCase().startsWith("es") ? "es" : "en";
+}
+
+/** "3 days ago" in the page language. */
+export function ago(date, lang) {
+  if (!date) return "";
+  const rtf = new Intl.RelativeTimeFormat(lang, { numeric: "auto" });
+  const s = (new Date(date) - Date.now()) / 1000;
+  for (const [unit, n] of [["year", 31536000], ["month", 2592000], ["day", 86400], ["hour", 3600], ["minute", 60]]) {
+    if (Math.abs(s) >= n) return rtf.format(Math.round(s / n), unit);
+  }
+  return rtf.format(0, "minute");
 }

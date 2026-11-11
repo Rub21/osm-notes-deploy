@@ -1,24 +1,14 @@
 import { useState } from "react";
-import { api, colorOf, EMPTY_FILTERS, PAGE_SIZE } from "./api.js";
+import { api, colorOf, COLORS, EMPTY_FILTERS, PAGE_SIZE } from "./api.js";
+import { ago } from "./i18n.js";
 
 const fmt = (n) => (n == null ? "" : n.toLocaleString());
 const CONF = [0, 0.5, 0.7, 0.9];
 const AGES = [["anyAge", 0], ["days30", 30], ["year", 365], ["years3", 1095]];
 
-/** "3 days ago" in the page language. */
-function ago(date, lang) {
-  if (!date) return "";
-  const rtf = new Intl.RelativeTimeFormat(lang, { numeric: "auto" });
-  const s = (new Date(date) - Date.now()) / 1000;
-  for (const [unit, n] of [["year", 31536000], ["month", 2592000], ["day", 86400], ["hour", 3600], ["minute", 60]]) {
-    if (Math.abs(s) >= n) return rtf.format(Math.round(s / n), unit);
-  }
-  return rtf.format(0, "minute");
-}
-
 /** Left panel, like OSMCha: order + filters on top, the list of notes, pages. */
 export default function Sidebar(props) {
-  const { t, lang, setLang, me, options, names, filters, setFilters, sort, setSort,
+  const { t, lang, names, options, filters, setFilters, sort, setSort,
           list, loading, page, setPage, onRefresh, selectedId, onSelect, bbox, mode } = props;
   const [open, setOpen] = useState(false);
   const active = filters.cat.length + ["theme", "lang", "app", "conf", "days", "q"]
@@ -27,25 +17,6 @@ export default function Sidebar(props) {
 
   return (
     <aside className="side">
-      <header className="brand">
-        <div>
-          <h1>{t.title}</h1>
-          <small>{t.tagline}{options ? ` · ${fmt(options.total)} ${t.notes}` : ""}</small>
-        </div>
-        <div className="who">
-          <button className="ghost" onClick={() => setLang(lang === "en" ? "es" : "en")}>
-            {lang === "en" ? "ES" : "EN"}
-          </button>
-          {me?.osm_login ? (me.user ? (
-            <a className="ghost" href={`/auth/logout?next=${encodeURIComponent(location.pathname + location.search)}`} title={t.logout}>
-              {me.user.name} ⏻
-            </a>
-          ) : (
-            <a className="ghost" href={`/auth/login?next=${encodeURIComponent(location.pathname + location.search + location.hash)}`}>{t.login}</a>
-          )) : null}
-        </div>
-      </header>
-
       <div className="toolbar">
         <select value={sort} onChange={(e) => setSort(e.target.value)} aria-label={t.sort}>
           <option value="new">{t.sortNew}</option>
@@ -61,6 +32,7 @@ export default function Sidebar(props) {
         <span><strong>{list ? fmt(list.total) : "…"}</strong> {t.inView}</span>
         <button className="ghost icon" onClick={onRefresh} title={t.refresh} aria-label={t.refresh}>⟳</button>
       </div>
+      <Mix t={t} names={names} byCat={list?.by_category} />
 
       {open ? (
         <Filters {...{ t, options, names, filters, setFilters, list, bbox }} onClose={() => setOpen(false)} />
@@ -73,31 +45,54 @@ export default function Sidebar(props) {
                 <button className={`item${n.note_id === selectedId ? " sel" : ""}`} style={{ "--cat": colorOf(n.category) }}
                         onClick={() => onSelect(n.note_id, n)}>
                   <span className="item-top">
-                    <span className="dot" />
-                    <strong>{names.cat[n.category] || n.category}</strong>
+                    <span className="cat"><span className="dot" />{names.cat[n.category] || n.category}</span>
                     <span className="when">{ago(n.created_at, lang)}</span>
                   </span>
                   <span className="item-text">{n.text || "—"}</span>
-                  <span className="tags">
-                    {n.theme && n.theme !== "none" ? <span className="tag">{names.theme[n.theme]}</span> : null}
-                    {n.app && n.app !== "other" ? <span className="tag">{n.app}</span> : null}
-                    {n.lang ? <span className="tag">{n.lang}</span> : null}
-                  </span>
                   <span className="item-foot">
-                    <span>#{n.note_id}</span>
-                    <span className="conf-badge" title={t.conf}>{Math.round(n.category_conf * 100)}%</span>
+                    <span className="tags">
+                      {n.theme && n.theme !== "none" ? <span className="tag">{names.theme[n.theme]}</span> : null}
+                      {n.app && n.app !== "other" ? <span className="tag">{n.app}</span> : null}
+                      {n.lang && n.lang !== "und" ? <span className="tag">{n.lang}</span> : null}
+                    </span>
+                    <span className="conf-badge" title={t.conf}>
+                      <span className="meter"><span style={{ width: `${Math.round(n.category_conf * 100)}%` }} /></span>
+                      {Math.round(n.category_conf * 100)}%
+                    </span>
                   </span>
+                  <span className="item-id">#{n.note_id}{n.country ? ` · ${n.country}` : ""}</span>
                 </button>
               </li>
             ))}
           </ol>
           {list && !list.items.length && !loading ? <p className="muted pad">{t.empty}</p> : null}
           {loading && !list ? <p className="muted pad">{t.loading}</p> : null}
-          <p className="help"><a href="/label">{t.help} →</a> <span>{t.helpHint}</span></p>
           {pages > 1 ? <Pager page={page} pages={pages} setPage={setPage} /> : null}
         </>
       )}
     </aside>
+  );
+}
+
+/** One thin bar split by category: what the notes in view need. */
+function Mix({ t, names, byCat }) {
+  const rows = Object.entries(byCat || {}).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+  const total = rows.reduce((s, [, n]) => s + n, 0);
+  if (!total) return <div className="mix empty" />;
+  return (
+    <div className="mix" title={t.mix}>
+      <div className="mix-bar">
+        {rows.map(([c, n]) => (
+          <span key={c} style={{ flexGrow: n, background: COLORS[c] || "#999" }}
+                title={`${names.cat[c] || c}: ${fmt(n)} (${Math.round((n / total) * 100)}%)`} />
+        ))}
+      </div>
+      <div className="mix-keys">
+        {rows.slice(0, 3).map(([c, n]) => (
+          <span key={c}><i style={{ background: COLORS[c] }} />{names.cat[c] || c} <b>{Math.round((n / total) * 100)}%</b></span>
+        ))}
+      </div>
+    </div>
   );
 }
 
