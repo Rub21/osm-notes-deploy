@@ -207,6 +207,7 @@ def run_once(cat: Model, theme: Model) -> int:
             secs = time.time() - t0
             print(f"  {len(rows):,} notes in {secs:.0f} s ({len(rows) / max(secs, 0.001):.1f}/s) "
                   f"| total {done:,}", flush=True)
+            sync_map()   # show each batch on the map right away
 
 
 def main() -> None:
@@ -218,13 +219,13 @@ def main() -> None:
         print(f"classified {run_once(cat, theme):,} notes", flush=True)
         sync_map(full="--map-full" in sys.argv)
         return
-    full = "--map-full" in sys.argv
+    # Fill the map with what is already classified before working on new notes.
+    sync_map(full="--map-full" in sys.argv)
     while True:
         try:
             n = run_once(cat, theme)
             print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} classified {n:,} notes", flush=True)
-            sync_map(full)
-            full = False
+            sync_map()
         except psycopg.Error as e:
             print(f"DB error, retrying later: {e}", flush=True)
         time.sleep(INTERVAL)

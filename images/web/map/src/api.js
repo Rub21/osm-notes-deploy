@@ -12,6 +12,7 @@ export const COLORS = {
 };
 export const colorOf = (c) => COLORS[c] || "#555";
 
+export const PAGE_SIZE = 50;
 export const EMPTY_FILTERS = { cat: [], theme: "", lang: "", app: "", conf: 0, days: 0, q: "" };
 
 /** Filters from the page URL (?cat=a,b&theme=food&conf=0.9...). */
@@ -28,7 +29,7 @@ export function readUrl() {
   };
   const m = /map=([\d.]+)\/(-?[\d.]+)\/(-?[\d.]+)/.exec(location.hash);
   const view = m ? { zoom: +m[1], lat: +m[2], lon: +m[3] } : null;
-  return { filters, sort: p.get("sort") || "conf", note: Number(p.get("note")) || null, view };
+  return { filters, sort: p.get("sort") || "new", note: Number(p.get("note")) || null, view };
 }
 
 export function filterParams(filters, bbox) {
@@ -44,7 +45,7 @@ export function filterParams(filters, bbox) {
 /** Keep the URL shareable: filters in the query, map position in the hash. */
 export function writeUrl(filters, sort, note, view) {
   const p = filterParams(filters);
-  if (sort && sort !== "conf") p.set("sort", sort);
+  if (sort && sort !== "new") p.set("sort", sort);
   if (note) p.set("note", String(note));
   const q = p.toString();
   const hash = view ? `#map=${view.zoom.toFixed(2)}/${view.lat.toFixed(5)}/${view.lon.toFixed(5)}` : "";
@@ -75,7 +76,7 @@ export const api = {
     const p = filterParams(filters, bbox);
     p.set("sort", sort);
     p.set("offset", String(offset));
-    p.set("limit", "50");
+    p.set("limit", String(PAGE_SIZE));
     return getJson(`/api/map/list?${p}`, { signal });
   },
   note: (id) => getJson(`/api/map/note/${id}`),

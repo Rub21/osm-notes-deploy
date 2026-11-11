@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, readUrl, writeUrl } from "./api.js";
+import { api, PAGE_SIZE, readUrl, writeUrl } from "./api.js";
 import { startLang, TEXT } from "./i18n.js";
 import MapView from "./MapView.jsx";
 import NoteDetail from "./NoteDetail.jsx";
+import PlaceSearch from "./PlaceSearch.jsx";
 import Sidebar from "./Sidebar.jsx";
 
 const initial = readUrl();
@@ -18,6 +19,7 @@ export default function App() {
   const [mode, setMode] = useState("points");
   const [list, setList] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(0);
   const [selectedId, setSelectedId] = useState(initial.note);
   const [selected, setSelected] = useState(null);
   const [flyTo, setFlyTo] = useState(null);
@@ -43,20 +45,18 @@ export default function App() {
     return { cat, theme };
   }, [options, lang]);
 
-  // Sidebar list for the view and filters. Starts again at offset 0 on any change.
-  const loadList = (offset) => {
+  // Sidebar list: one page of notes for the view and filters.
+  const loadList = (p) => {
     if (!view) return;
     abort.current?.abort();
     abort.current = new AbortController();
     setLoading(true);
-    api.list(filters, view.bbox, sort, offset, abort.current.signal)
-      .then((res) => {
-        setList((prev) => (offset && prev ? { ...res, items: [...prev.items, ...res.items] } : res));
-        setLoading(false);
-      })
+    api.list(filters, view.bbox, sort, p * PAGE_SIZE, abort.current.signal)
+      .then((res) => { setList(res); setLoading(false); })
       .catch((e) => { if (e.name !== "AbortError") { console.warn("list", e); setLoading(false); } });
   };
-  useEffect(() => { loadList(0); }, [view, filters, sort]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setPage(0); loadList(0); }, [view, filters, sort]); // eslint-disable-line react-hooks/exhaustive-deps
+  const goPage = (p) => { setPage(p); loadList(p); document.querySelector(".side")?.scrollTo(0, 0); };
 
   useEffect(() => { writeUrl(filters, sort, selectedId, view); }, [filters, sort, selectedId, view]);
 
@@ -74,10 +74,11 @@ export default function App() {
     <div className="app">
       <Sidebar t={t} lang={lang} setLang={setLang} me={me} options={options} names={names}
                filters={filters} setFilters={setFilters} sort={sort} setSort={setSort}
-               list={list} loading={loading} onMore={() => loadList(list?.items.length || 0)}
-               selectedId={selectedId} onSelect={select} onFly={setFlyTo}
+               list={list} loading={loading} page={page} setPage={goPage}
+               onRefresh={() => loadList(page)} selectedId={selectedId} onSelect={select}
                bbox={view?.bbox} mode={mode} />
       <main className="stage">
+        <PlaceSearch t={t} lang={lang} onFly={setFlyTo} />
         <MapView filters={filters} selected={selected} onSelect={(id) => select(id)} onView={setView}
                  flyTo={flyTo} start={initial.view} t={t} onMode={setMode} />
         {selectedId ? (

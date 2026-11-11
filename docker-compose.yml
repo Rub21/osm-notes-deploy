@@ -136,7 +136,7 @@ services:
     volumes:
       - ./models/classifier:/models:ro
     cpus: ${CLASSIFIER_CPUS:-2}
-    mem_limit: ${CLASSIFIER_MEM:-2g}
+    mem_limit: ${CLASSIFIER_MEM:-3g}   # two int8 models: ~1.5 GB loaded, ~2 GB peak
 
   # Website + API: the map of classified notes (/), the labeling page (/label)
   # and /api. Needs the ml schema: run the extractor once first.
