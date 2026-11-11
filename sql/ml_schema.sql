@@ -57,6 +57,34 @@ ON CONFLICT (code) DO UPDATE SET
  name_en = EXCLUDED.name_en, example = EXCLUDED.example, sort = EXCLUDED.sort,
  description = EXCLUDED.description;
 
+-- English text for the labeling page and the map.
+ALTER TABLE ml.categories ADD COLUMN IF NOT EXISTS description_en TEXT;
+ALTER TABLE ml.categories ADD COLUMN IF NOT EXISTS example_en TEXT;
+UPDATE ml.categories c SET description_en = v.d, example_en = v.e
+FROM (VALUES
+ ('missing_place', 'A place, business, building or point of interest that exists and is not on the map.',
+  'There is a new grocery store here'),
+ ('place_changed', 'A place already on the map closed, moved, or is now something else.',
+  'The pharmacy closed'),
+ ('wrong_name', 'The name of a place or street is misspelled, different, or missing.',
+  'It is called Grau Ave, not Brasil Ave'),
+ ('wrong_road', 'Streets, paths, tracks or ways that are missing, do not exist, or have the wrong shape, direction, access or connection.',
+  'This street is a dead end'),
+ ('other_data', 'Something on the map must change but it is not a place, name or road: opening hours, address, number, phone, type, borders, water, land use.',
+  'The opening hours changed'),
+ ('spam', 'Promotes a business or service, or has links that have nothing to do with the map.',
+  'Best chicken in town, delivery 999…'),
+ ('empty', 'Says nothing you can understand or check: empty, greetings, tests, random letters.',
+  'ok, asdf, hello'),
+ ('personal_data', 'Shows where a private person lives or what they do, or their data: "this is my house", "my friend lives here", full name, phone, email, plate. The note gets hidden. Wins over any other category.',
+  'This is my house, my friend Juan lives here'),
+ ('not_mappable', 'Opinions, complaints, questions or information that does not go in OSM (safety, quality, prices, live traffic).',
+  'Dangerous area, good service'),
+ ('unsure', 'It is not clear what the note asks, or it fits two categories equally. Do not force one.',
+  NULL)
+) AS v(code, d, e)
+WHERE c.code = v.code;
+
 -- Second label axis: what the note is about. Fixed list, like categories.
 -- theme_auto comes from the POI type in app templates (MAPS.ME, Organic Maps...).
 CREATE TABLE IF NOT EXISTS ml.themes (

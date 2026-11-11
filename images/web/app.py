@@ -105,11 +105,11 @@ def current_user(request: Request, typed: str | None = None) -> str:
     if OSM_LOGIN:
         user = request.session.get("user")
         if not user:
-            raise HTTPException(401, "Entra con tu cuenta de OSM")
+            raise HTTPException(401, "Log in with your OSM account")
         return user["name"]
     typed = (typed or "").strip()
     if not USER_RE.match(typed):
-        raise HTTPException(400, "Nombre de usuario inválido (2-40 letras, números, . @ -)")
+        raise HTTPException(400, "Invalid user name (2-40 letters, numbers, . @ -)")
     return typed
 
 
@@ -130,7 +130,7 @@ def me(request: Request):
 @app.get("/auth/login")
 def login(request: Request):
     if not OSM_LOGIN:
-        raise HTTPException(404, "Login con OSM no configurado")
+        raise HTTPException(404, "OSM login is not set up")
     # PKCE + state, kept in the signed session cookie.
     verifier = secrets.token_urlsafe(48)
     challenge = base64.urlsafe_b64encode(
@@ -150,11 +150,11 @@ def login(request: Request):
 @app.get("/auth/callback")
 def callback(request: Request, code: str = "", state: str = ""):
     if not OSM_LOGIN:
-        raise HTTPException(404, "Login con OSM no configurado")
+        raise HTTPException(404, "OSM login is not set up")
     expected = request.session.pop("oauth_state", None)
     verifier = request.session.pop("oauth_verifier", None)
     if not code or not expected or state != expected:
-        raise HTTPException(400, "Login inválido o vencido. Vuelve a intentar.")
+        raise HTTPException(400, "Invalid or expired login. Please try again.")
     with httpx.Client(timeout=15) as http:
         tok = http.post(f"{OSM_URL}/oauth2/token", data={
             "grant_type": "authorization_code", "code": code,
@@ -162,11 +162,11 @@ def callback(request: Request, code: str = "", state: str = ""):
             "client_id": OSM_CLIENT_ID, "client_secret": OSM_CLIENT_SECRET,
             "code_verifier": verifier})
         if tok.status_code != 200:
-            raise HTTPException(502, "OSM rechazó el login")
+            raise HTTPException(502, "OSM rejected the login")
         details = http.get(f"{OSM_API_URL}/api/0.6/user/details.json", headers={
             "Authorization": f"Bearer {tok.json()['access_token']}"})
         if details.status_code != 200:
-            raise HTTPException(502, "No se pudo leer el usuario de OSM")
+            raise HTTPException(502, "Could not read the OSM user")
     u = details.json()["user"]
     # Only the name and id are kept; the OSM access token is dropped.
     request.session["user"] = {"id": u["id"], "name": u["display_name"],
@@ -185,7 +185,8 @@ def logout(request: Request):
 def categories() -> dict[str, dict]:
     with pool.connection() as conn:
         rows = conn.execute(
-            "SELECT code, grp, action, name_es, name_en, example, description, sort "
+            "SELECT code, grp, action, name_es, name_en, example, description, example_en, "
+            "description_en, sort "
             "FROM ml.categories WHERE active ORDER BY sort").fetchall()
     return {r["code"]: r for r in rows}
 
@@ -349,9 +350,9 @@ def post_labels(body: LabelsIn, request: Request):
     items = []
     for lb in body.labels:
         if lb.category not in cats:
-            raise HTTPException(400, f"Categoría desconocida: {lb.category}")
+            raise HTTPException(400, f"Unknown category: {lb.category}")
         if lb.theme and lb.theme not in ths:
-            raise HTTPException(400, f"Tema desconocido: {lb.theme}")
+            raise HTTPException(400, f"Unknown theme: {lb.theme}")
         items.append((lb.note_id, lb.category, lb.claude_category or None,
                       lb.theme or None, lb.claude_theme or None))
     return save_labels(user, items)
@@ -369,7 +370,7 @@ def read_csv(raw: bytes) -> list[dict]:
         dialect = csv.excel
     reader = csv.DictReader(io.StringIO(text), dialect=dialect)
     if not reader.fieldnames or "note_id" not in [f.strip().lower() for f in reader.fieldnames]:
-        raise HTTPException(400, "El CSV necesita una columna note_id")
+        raise HTTPException(400, "The CSV needs a note_id column")
     return [{(k or "").strip().lower(): (v or "").strip() for k, v in row.items()}
             for row in reader]
 
@@ -380,7 +381,7 @@ async def import_csv(request: Request, file: UploadFile = File(...),
     user = current_user(request, user)
     raw = await file.read()
     if len(raw) > 20_000_000:
-        raise HTTPException(400, "Archivo muy grande (máx. 20 MB)")
+        raise HTTPException(400, "File too big (max. 20 MB)")
     rows = read_csv(raw)
     cats, ths = categories(), themes()
     # Also accept the category / theme name in Spanish/English, not only the code.
@@ -411,17 +412,17 @@ async def import_csv(request: Request, file: UploadFile = File(...),
             skipped += 1
             continue
         if not nid.isdigit():
-            errors.append({"line": line, "note_id": nid, "error": "note_id inválido"})
+            errors.append({"line": line, "note_id": nid, "error": "invalid note_id"})
         elif int(nid) not in known:
-            errors.append({"line": line, "note_id": nid, "error": "nota no existe"})
+            errors.append({"line": line, "note_id": nid, "error": "note does not exist"})
         elif cat and cat not in cats:
-            errors.append({"line": line, "note_id": nid, "error": f"categoría desconocida: {cat}"})
+            errors.append({"line": line, "note_id": nid, "error": f"unknown category: {cat}"})
         elif cc and cc not in cats:
             errors.append({"line": line, "note_id": nid,
-                           "error": f"claude_category desconocida: {cc}"})
+                           "error": f"unknown claude_category: {cc}"})
         elif (th and th not in ths) or (cth and cth not in ths):
             errors.append({"line": line, "note_id": nid,
-                           "error": f"tema desconocido: {th if th and th not in ths else cth}"})
+                           "error": f"unknown theme: {th if th and th not in ths else cth}"})
         elif cat:
             items.append((int(nid), cat, cc, th, cth))
         else:  # only the AI suggestion: goes to the review queue
@@ -647,7 +648,8 @@ def map_options():
             GROUP BY 1 ORDER BY 2 DESC""").fetchall()
         private_total = conn.execute(
             "SELECT count(*) AS n FROM ml.private_notes").fetchone()["n"]
-    all_cats = [{k: c[k] for k in ("code", "grp", "name_es", "name_en", "description")}
+    all_cats = [{k: c[k] for k in ("code", "grp", "name_es", "name_en", "description",
+                                   "description_en")}
                 for c in categories().values()]
     # personal_data is listed (with a lock in the page); only moderators can open it.
     cats = [c for c in all_cats if c["code"] != "unsure"]

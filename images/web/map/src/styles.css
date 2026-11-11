@@ -12,8 +12,8 @@
   --line-2: #d4d4d0;
   --sel: #f2f2ef;
   --shadow: 0 1px 2px rgba(0,0,0,.05), 0 12px 32px -12px rgba(0,0,0,.18);
-  --sans: "Instrument Sans", "Helvetica Neue", sans-serif;
-  --serif: Newsreader, Georgia, serif;
+  --sans: Manrope, "Helvetica Neue", sans-serif;
+  --serif: var(--sans);
   --mono: "JetBrains Mono", ui-monospace, monospace;
   color-scheme: light;
 }
@@ -41,6 +41,12 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--ink);
 /* Top bar */
 .top { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 24px; height: 56px; padding: 0 16px 0 18px;
        border-bottom: 1px solid var(--line-2); background: var(--bg); position: relative; z-index: 3; }
+/* Thin strip with the category colors under the top bar */
+.top::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 3px;
+  background: linear-gradient(90deg, #2f7d4a 0 30%, #d9622b 30% 45%, #8e44ad 45% 52%, #2b6cb0 52% 72%,
+                              #0f8b8d 72% 86%, #8a8f98 86% 95%, #c3c6cc 95% 98%, #c0392b 98% 100%); }
+.top { background: linear-gradient(180deg, #ffffff 0%, #f7f8f6 100%); }
+.logo svg { color: #2f7d4a; }
 .logo { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); }
 .logo svg { flex-shrink: 0; }
 .logo span { display: flex; flex-direction: column; line-height: 1.15; }
@@ -103,7 +109,7 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--ink);
 .cat .dot { width: 6px; height: 6px; }
 .when { margin-left: auto; color: var(--ink-3); font-size: 11px; white-space: nowrap; }
 .item-text { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
-             font: 15px/1.4 var(--serif); color: var(--ink-2); overflow-wrap: anywhere; }
+             font: 500 14px/1.45 var(--serif); color: var(--ink-2); overflow-wrap: anywhere; }
 .tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .tags { flex: 1; min-width: 0; }
 .tag { font-size: 10.5px; padding: 1px 7px; border-radius: 4px; background: var(--bg-3); color: var(--ink-2); }
@@ -185,7 +191,7 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--ink);
 .bar { height: 3px; background: var(--bg-3); border-radius: 2px; margin: 10px 0 6px; overflow: hidden; }
 .bar span { display: block; height: 100%; background: var(--ink); }
 .meta { color: var(--ink-3); font-size: 11.5px; margin: 4px 0; }
-.note-text { margin: 14px 0 10px; font: 19px/1.45 var(--serif); white-space: pre-wrap; overflow-wrap: anywhere; }
+.note-text { margin: 14px 0 10px; font: 500 17px/1.5 var(--serif); white-space: pre-wrap; overflow-wrap: anywhere; }
 .ctx { font-size: 12px; margin: 0 0 6px; color: var(--ink-2); }
 .ctx span { font-size: 10px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); margin-right: 5px; }
 .orig { font-size: 11.5px; margin-bottom: 6px; color: var(--ink-2); }
@@ -215,7 +221,7 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--ink);
 .pie span { position: relative; font: 600 10.5px/1 var(--sans); color: var(--ink); letter-spacing: -.02em; }
 
 /* Legend */
-.legend { position: absolute; left: 12px; bottom: 28px; z-index: 1; background: rgba(255,255,255,.95); backdrop-filter: blur(6px);
+.legend { position: absolute; right: 12px; bottom: 34px; z-index: 1; background: rgba(255,255,255,.95); backdrop-filter: blur(6px);
           border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 8px 12px; font-size: 11px; min-width: 150px; }
 .legend summary { cursor: pointer; font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); list-style: none; }
 .legend summary::after { content: " –"; }
@@ -223,7 +229,6 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--ink);
 .legend ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 3px; }
 .legend li { display: flex; align-items: center; gap: 7px; color: var(--ink-2); }
 .legend i { width: 8px; height: 8px; border-radius: 50%; }
-.detail ~ .legend { display: none; }
 
 .maplibregl-ctrl-attrib { font: 10px/1.4 var(--sans); }
 .maplibregl-ctrl-group { border-radius: 8px !important; box-shadow: var(--shadow) !important; }

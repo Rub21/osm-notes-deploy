@@ -81,7 +81,7 @@ export default function Filters({ t, me, options, names, filters, setFilters, li
                 return (
                   <button type="button" key={c.code} className={`chip${on ? " on" : ""}${locked ? " locked" : ""}`}
                           style={{ "--cat": colorOf(c.code) }} onClick={() => toggleCat(c.code)}
-                          title={locked ? `${t.modOnly}. ${c.description}` : c.description} aria-pressed={on}>
+                          title={locked ? `${t.modOnly}. ${names.desc[c.code]}` : names.desc[c.code]} aria-pressed={on}>
                     <span className="dot" />{names.cat[c.code]}
                     <span className="n">{fmt(count(c.code))}</span>
                     {locked ? <span className="lock">🔒 {t.modOnly}</span> : null}

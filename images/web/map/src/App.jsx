@@ -42,10 +42,13 @@ export default function App() {
   // Category and theme names in the page language.
   const names = useMemo(() => {
     const key = lang === "es" ? "name_es" : "name_en";
-    const cat = {}, theme = {};
-    for (const c of options?.all_categories || []) cat[c.code] = c[key];
+    const cat = {}, theme = {}, desc = {};
+    for (const c of options?.all_categories || []) {
+      cat[c.code] = c[key];
+      desc[c.code] = (lang === "es" ? c.description : c.description_en) || c.description;
+    }
     for (const th of options?.themes || []) theme[th.code] = th[key];
-    return { cat, theme };
+    return { cat, theme, desc };
   }, [options, lang]);
 
   // Sidebar list: one page of notes for the view and filters.

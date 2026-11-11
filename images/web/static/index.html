@@ -1,40 +1,30 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Libreta de notas OSM</title>
+<title>Label OSM notes</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
 :root {
-  --paper: #f3efe4; --paper-2: #ebe5d5; --ink: #1f2420; --ink-soft: #5c6157;
-  --grid: rgba(31, 36, 32, .055); --rule: rgba(31, 36, 32, .18);
-  --map: #2f6b3f; --map-bg: #dfe9d9; --close: #4a5563; --close-bg: #e1e3e4;
-  --unsure: #8a6d1d; --unsure-bg: #f0e6c8; --mark: #e2591b; --card: #fbf9f3;
-  --shadow: 0 1px 0 rgba(0,0,0,.04), 0 12px 30px -18px rgba(31,36,32,.35);
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #171a17; --paper-2: #1e221e; --ink: #e9e5d8; --ink-soft: #9ea296;
-    --grid: rgba(233, 229, 216, .045); --rule: rgba(233, 229, 216, .16);
-    --map: #8fcf98; --map-bg: #1f3324; --close: #b7c0cc; --close-bg: #262b31;
-    --unsure: #e2c46e; --unsure-bg: #352d17; --mark: #ff7a3d; --card: #1d211d;
-    --shadow: 0 1px 0 rgba(0,0,0,.3), 0 14px 34px -18px rgba(0,0,0,.8);
-  }
+  --paper: #ffffff; --paper-2: #f4f5f3; --ink: #111111; --ink-soft: #6b6b68;
+  --rule: #e2e3df;
+  --map: #2f7d4a; --map-bg: #e9f3ec; --close: #4a5563; --close-bg: #eef0f2;
+  --unsure: #8a6d1d; --unsure-bg: #f6efd9; --mark: #2f7d4a; --card: #ffffff;
+  --shadow: 0 1px 2px rgba(0,0,0,.04), 0 10px 28px -14px rgba(0,0,0,.18);
+  --sans: Manrope, "Helvetica Neue", sans-serif;
+  color-scheme: light;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { margin: 0; }
 body {
-  background-color: var(--paper);
-  background-image:
-    linear-gradient(var(--grid) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-  background-size: 28px 28px;
+  background: var(--paper);
   color: var(--ink);
-  font: 14px/1.5 "JetBrains Mono", ui-monospace, monospace;
+  font: 14px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
   min-height: 100vh;
 }
 a { color: inherit; }
@@ -43,19 +33,22 @@ a { color: inherit; }
 /* Header */
 header {
   display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: end;
-  border-bottom: 2px solid var(--ink); padding-bottom: 14px;
+  border-bottom: 1px solid var(--rule); padding-bottom: 16px; position: relative;
 }
+header::after { content: ""; position: absolute; left: 0; right: 0; bottom: -2px; height: 3px; border-radius: 2px;
+  background: linear-gradient(90deg, #2f7d4a 0 30%, #d9622b 30% 45%, #8e44ad 45% 52%, #2b6cb0 52% 72%,
+                              #0f8b8d 72% 86%, #8a8f98 86% 95%, #c3c6cc 95% 98%, #c0392b 98% 100%); }
 .brand { flex: 1 1 260px; }
-.brand small { color: var(--mark); letter-spacing: .14em; text-transform: uppercase; font-size: 11px; }
-.brand h1 { font: 600 30px/1.05 Fraunces, Georgia, serif; margin: 4px 0 0; letter-spacing: -.01em; }
+.brand small { color: var(--map); font-weight: 600; letter-spacing: .14em; text-transform: uppercase; font-size: 11px; }
+.brand h1 { font: 700 28px/1.1 var(--sans); margin: 4px 0 0; letter-spacing: -.025em; }
 .field { display: flex; flex-direction: column; gap: 4px; }
 .field label { font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); }
 input, select, button { font: inherit; color: inherit; }
 input[type=text], input[type=password], select {
-  background: var(--card); border: 1px solid var(--rule); border-radius: 3px;
+  background: var(--card); border: 1px solid var(--rule); border-radius: 6px;
   padding: 7px 9px; min-width: 150px;
 }
-input:focus, select:focus, button:focus-visible { outline: 2px solid var(--mark); outline-offset: 1px; }
+input:focus, select:focus, button:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
 
 /* Tabs */
 nav { display: flex; gap: 2px; margin: 18px 0 18px; }
@@ -63,13 +56,13 @@ nav button {
   background: none; border: 0; border-bottom: 2px solid transparent; padding: 6px 12px;
   cursor: pointer; color: var(--ink-soft); letter-spacing: .06em;
 }
-nav button[aria-selected=true] { color: var(--ink); border-color: var(--mark); }
+nav button[aria-selected=true] { color: var(--ink); border-color: var(--ink); font-weight: 600; }
 section[hidden] { display: none; }
 
 /* Note card */
 .card {
   position: relative; background: var(--card); border: 1px solid var(--rule);
-  border-radius: 4px; box-shadow: var(--shadow); padding: 26px 28px 22px;
+  border-radius: 10px; box-shadow: var(--shadow); padding: 26px 28px 22px;
   animation: drop .28s ease-out;
 }
 .card::before { /* pin, like an OSM note marker */
@@ -81,7 +74,7 @@ section[hidden] { display: none; }
 .meta { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--ink-soft); }
 .meta b { color: var(--ink); font-weight: 600; }
 .note-text {
-  font: 400 clamp(20px, 3.2vw, 27px)/1.38 Fraunces, Georgia, serif;
+  font: 500 clamp(19px, 3vw, 25px)/1.4 var(--sans); letter-spacing: -.01em;
   margin: 16px 0 6px; white-space: pre-wrap; overflow-wrap: anywhere;
   max-height: 46vh; overflow: auto;
 }
@@ -97,12 +90,12 @@ section[hidden] { display: none; }
 .keys { display: grid; gap: 6px; }
 .key {
   display: grid; grid-template-columns: 28px 1fr; align-items: center; gap: 10px;
-  text-align: left; border: 1px solid var(--rule); border-radius: 3px; padding: 8px 10px;
+  text-align: left; border: 1px solid var(--rule); border-radius: 8px; padding: 8px 10px;
   background: var(--card); cursor: pointer; transition: transform .08s, background .15s, border-color .15s;
 }
 .key kbd {
   display: grid; place-items: center; width: 26px; height: 26px; border-radius: 3px;
-  font: 600 13px "JetBrains Mono", monospace; border: 1px solid currentColor;
+  font: 600 12px "JetBrains Mono", monospace; border: 1px solid currentColor;
 }
 .key span { display: flex; flex-direction: column; line-height: 1.25; }
 .key em { font-style: normal; font-size: 11.5px; color: var(--ink-soft); }
@@ -110,11 +103,11 @@ section[hidden] { display: none; }
 .key.close { color: var(--close); } .key.close:hover, .key.close.hit { background: var(--close-bg); border-color: var(--close); }
 .key.unsure { color: var(--unsure); } .key.unsure:hover, .key.unsure.hit { background: var(--unsure-bg); border-color: var(--unsure); }
 .key span b { color: var(--ink); font-weight: 600; }
-.key.current { box-shadow: inset 4px 0 0 var(--mark); }
+.key.current { box-shadow: inset 4px 0 0 var(--ink); }
 .key:active { transform: translateY(1px); }
 .nav-keys { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
 .btn {
-  border: 1px solid var(--ink); background: transparent; border-radius: 3px;
+  border: 1px solid var(--ink); background: transparent; border-radius: 6px;
   padding: 7px 12px; cursor: pointer; letter-spacing: .03em;
 }
 .btn.primary { background: var(--ink); color: var(--paper); }
@@ -123,7 +116,7 @@ section[hidden] { display: none; }
 .account { display: flex; align-items: end; }
 .osm-login {
   display: inline-flex; align-items: center; gap: 9px; text-decoration: none;
-  background: var(--map); color: var(--paper); border-radius: 3px;
+  background: var(--map); color: #fff; border-radius: 6px;
   padding: 8px 14px 8px 11px; font-weight: 600; letter-spacing: .01em;
   box-shadow: var(--shadow); transition: transform .12s, filter .12s;
 }
@@ -131,13 +124,13 @@ section[hidden] { display: none; }
 .osm-login svg { width: 18px; height: 18px; fill: currentColor; }
 .profile {
   display: flex; align-items: center; gap: 10px;
-  background: var(--card); border: 1px solid var(--rule); border-radius: 3px;
+  background: var(--card); border: 1px solid var(--rule); border-radius: 8px;
   padding: 5px 10px 5px 5px;
 }
 .avatar {
   width: 32px; height: 32px; border-radius: 50%; overflow: hidden; flex: none;
   display: grid; place-items: center; background: var(--map-bg); color: var(--map);
-  font: 600 15px Fraunces, Georgia, serif;
+  font: 700 15px var(--sans);
 }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
 .profile-text { display: flex; flex-direction: column; line-height: 1.2; }
@@ -154,8 +147,8 @@ section[hidden] { display: none; }
 .btn kbd { font: inherit; opacity: .6; margin-left: 6px; }
 
 /* Panels */
-.panel { background: var(--card); border: 1px solid var(--rule); border-radius: 4px; padding: 18px 20px; box-shadow: var(--shadow); margin-bottom: 16px; }
-.panel h2 { font: 600 20px Fraunces, Georgia, serif; margin: 0 0 4px; }
+.panel { background: var(--card); border: 1px solid var(--rule); border-radius: 10px; padding: 18px 20px; box-shadow: var(--shadow); margin-bottom: 16px; }
+.panel h2 { font: 700 19px var(--sans); letter-spacing: -.015em; margin: 0 0 4px; }
 .panel p { color: var(--ink-soft); margin: 0 0 14px; }
 .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
 table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 10px; }
@@ -164,7 +157,7 @@ th { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: 
 td.num { text-align: right; font-variant-numeric: tabular-nums; }
 code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
 .empty-state { text-align: center; padding: 50px 20px; color: var(--ink-soft); }
-.empty-state strong { display: block; font: 600 22px Fraunces, Georgia, serif; color: var(--ink); margin-bottom: 6px; }
+.empty-state strong { display: block; font: 700 21px var(--sans); color: var(--ink); margin-bottom: 6px; }
 
 /* App template */
 .tpl { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; margin-top: 10px; font-size: 11.5px; color: var(--ink-soft); }
@@ -197,21 +190,21 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
   background: var(--mark); color: #fff; font-size: 10.5px; line-height: 17px; text-align: center; }
 .pill:empty { display: none; }
 .review-head { display: flex; justify-content: space-between; align-items: end; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-.review-head h2 { font: 600 20px Fraunces, Georgia, serif; margin: 0 0 2px; }
+.review-head h2 { font: 700 19px var(--sans); margin: 0 0 2px; }
 .review-head p { color: var(--ink-soft); margin: 0; }
 .review-pending { font-size: 12px; color: var(--ink-soft); }
 .rv {
   display: grid; grid-template-columns: 1fr; gap: 10px; align-items: start;
   background: var(--card); border: 1px solid var(--rule); border-left: 4px solid var(--rule);
-  border-radius: 3px; padding: 12px 14px; margin-bottom: 8px; transition: border-color .15s, opacity .2s;
+  border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; transition: border-color .15s, opacity .2s;
 }
 .rv.map { border-left-color: var(--map); }
 .rv.close { border-left-color: var(--close); }
 .rv.unsure { border-left-color: var(--unsure); }
-.rv.changed { box-shadow: inset 0 0 0 1px var(--mark); }
+.rv.changed { box-shadow: inset 0 0 0 1px #d9622b; }
 .rv.skip { opacity: .5; }
 .rv .meta { font-size: 11.5px; }
-.rv-text { font: 400 17px/1.4 Fraunces, Georgia, serif; margin-top: 4px; white-space: pre-wrap;
+.rv-text { font: 500 16px/1.45 var(--sans); margin-top: 4px; white-space: pre-wrap;
   overflow-wrap: anywhere; max-height: 9.8em; overflow: auto; }
 .rv-pick { display: flex; flex-direction: column; gap: 8px; }
 /* Category and theme in separate boxes, each with a title */
@@ -221,7 +214,7 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
 .pick-group > label span { text-transform: none; letter-spacing: 0; margin-left: 6px; }
 .pick-group.locked .chips { opacity: .45; pointer-events: none; }
 .rv-pick small { font-size: 11px; color: var(--ink-soft); }
-.rv-pick small b { color: var(--mark); font-weight: 600; }
+.rv-pick small b { color: #d9622b; font-weight: 600; }
 .review-foot { position: sticky; bottom: 0; display: flex; justify-content: space-between; align-items: center;
   gap: 12px; flex-wrap: wrap; padding: 12px 0; background: var(--paper); border-top: 1px solid var(--rule); }
 #review-summary { font-size: 12px; color: var(--ink-soft); }
@@ -232,7 +225,24 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
   opacity: 0; transition: .2s; pointer-events: none; max-width: calc(100% - 32px);
 }
 .toast.show { opacity: 1; transform: translateX(-50%); }
-.toast.err { background: var(--mark); color: #fff; }
+.toast.err { background: #b42318; color: #fff; }
+
+/* People who label: who did how many */
+.board { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; margin: -4px 0 16px; padding: 10px 14px;
+  border: 1px solid var(--rule); border-radius: 10px; background: var(--paper-2); font-size: 12.5px; }
+.board-total { font-weight: 600; }
+.board-total b { font: 600 13px "JetBrains Mono", monospace; }
+.board ol { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.board li { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 4px; border-radius: 999px;
+  background: var(--card); border: 1px solid var(--rule); }
+.board li i { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; font: 700 10px var(--sans);
+  font-style: normal; background: var(--ink); color: #fff; }
+.board li:nth-child(1) i { background: #c99a2e; } .board li:nth-child(2) i { background: #9aa1a9; } .board li:nth-child(3) i { background: #b0764a; }
+.board li b { font: 600 11.5px "JetBrains Mono", monospace; color: var(--ink-soft); }
+.board li.me { border-color: var(--map); background: var(--map-bg); }
+.board .ai { font-size: 11px; color: var(--ink-soft); }
+.bar-cell { width: 40%; }
+.bar-cell span { display: block; height: 6px; border-radius: 3px; background: var(--map); }
 
 @media (max-width: 720px) {
   .groups { grid-template-columns: 1fr; }
@@ -249,52 +259,54 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
 <div class="wrap">
   <header>
     <div class="brand">
-      <small>OpenStreetMap · notas</small>
-      <h1>Libreta de etiquetado</h1>
+      <small>OpenStreetMap · notes</small>
+      <h1>Label notes</h1>
     </div>
     <div class="field" id="user-field" hidden>
-      <label for="user">Tu usuario</label>
-      <input id="user" type="text" placeholder="usuario" autocomplete="username">
+      <label for="user">Your user name</label>
+      <input id="user" type="text" placeholder="user name" autocomplete="username">
     </div>
     <div class="account" id="account" hidden>
       <a class="osm-login" id="login" href="/auth/login?next=/label" hidden>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>
-        <span>Entrar con OpenStreetMap</span>
+        <span>Log in with OpenStreetMap</span>
       </a>
-      <small class="consent" id="consent" hidden>Al entrar aceptas la <a href="/privacy">política de privacidad</a>.</small>
+      <small class="consent" id="consent" hidden>By logging in you accept the <a href="/privacy">privacy policy</a>.</small>
       <div class="profile" id="profile" hidden>
         <span class="avatar" id="avatar"></span>
         <span class="profile-text">
-          <small>Etiquetas como</small>
+          <small>Labeling as</small>
           <a id="profile-name" target="_blank" rel="noopener"></a>
         </span>
-        <a class="logout" href="/auth/logout?next=/label" title="Cerrar sesión">salir</a>
+        <a class="logout" href="/auth/logout?next=/label" title="Log out">log out</a>
       </div>
     </div>
     <div class="field">
-      <label for="lang">Idioma</label>
-      <select id="lang"><option value="">cargando…</option></select>
+      <label for="lang">Language</label>
+      <select id="lang"><option value="">loading…</option></select>
     </div>
   </header>
 
   <nav role="tablist">
-    <button role="tab" data-tab="label" aria-selected="true">Etiquetar</button>
-    <button role="tab" data-tab="review" aria-selected="false">Revisar <span class="pill" id="review-count"></span></button>
+    <button role="tab" data-tab="label" aria-selected="true">Label</button>
+    <button role="tab" data-tab="review" aria-selected="false">Review <span class="pill" id="review-count"></span></button>
     <button role="tab" data-tab="csv" aria-selected="false">CSV</button>
-    <button role="tab" data-tab="stats" aria-selected="false">Avance</button>
+    <button role="tab" data-tab="stats" aria-selected="false">Progress</button>
   </nav>
+
+  <div class="board" id="board" hidden></div>
 
   <!-- Label one by one -->
   <section id="tab-label">
     <div class="counter">
       <span id="pos">—</span>
-      <span id="session">0 etiquetadas en esta sesión</span>
+      <span id="session">0 labeled in this session</span>
     </div>
     <div id="card-slot"></div>
     <div class="groups" id="groups"></div>
     <div class="nav-keys">
-      <button class="btn" id="back">← Anterior <kbd>Z</kbd></button>
-      <button class="btn" id="skip">Saltar <kbd>S</kbd></button>
+      <button class="btn" id="back">← Back <kbd>Z</kbd></button>
+      <button class="btn" id="skip">Skip <kbd>S</kbd></button>
     </div>
   </section>
 
@@ -302,38 +314,38 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
   <section id="tab-review" hidden>
     <div class="review-head">
       <div>
-        <h2>Revisar sugerencias de la IA</h2>
-        <p>La categoría sugerida ya está elegida. Cámbiala solo si está mal y aprueba la página.</p>
+        <h2>Review AI suggestions</h2>
+        <p>The suggested category is already picked. Change it only if it is wrong, then approve the page.</p>
       </div>
       <span class="review-pending" id="review-pending"></span>
     </div>
     <div id="review-list"></div>
     <div class="review-foot">
       <span id="review-summary"></span>
-      <button class="btn primary" id="approve">Aprobar página</button>
+      <button class="btn primary" id="approve">Approve page</button>
     </div>
   </section>
 
   <!-- CSV -->
   <section id="tab-csv" hidden>
     <div class="panel">
-      <h2>Descargar notas para etiquetar</h2>
-      <p>Te bajamos notas sin etiqueta en el idioma elegido. Llena la columna <code>category</code> con un código de la lista (o su nombre) y súbelo abajo.</p>
+      <h2>Download notes to label</h2>
+      <p>You get notes with no label in the chosen language. Fill the <code>category</code> column with a code from the list (or its name) and upload it below.</p>
       <div class="row">
         <div class="field">
-          <label for="dl-size">Cantidad</label>
+          <label for="dl-size">How many</label>
           <select id="dl-size"><option>50</option><option selected>200</option><option>500</option><option>1000</option></select>
         </div>
-        <button class="btn primary" id="download">Descargar CSV</button>
+        <button class="btn primary" id="download">Download CSV</button>
       </div>
-      <table id="cat-table"><thead><tr><th>code</th><th>Categoría</th><th>Cuándo usarla</th><th>Ejemplo</th></tr></thead><tbody></tbody></table>
+      <table id="cat-table"><thead><tr><th>code</th><th>Category</th><th>When to use it</th><th>Example</th></tr></thead><tbody></tbody></table>
     </div>
     <div class="panel">
-      <h2>Subir CSV etiquetado</h2>
-      <p>Columnas: <code>note_id</code>, <code>category</code>, <code>theme</code>, <code>claude_category</code> y <code>claude_theme</code>. Con <code>category</code> llena se guarda como etiqueta revisada. Con solo <code>claude_category</code> (sugerencia de la IA) va a la pestaña <b>Revisar</b>. Acepta CSV de Excel con <code>;</code>.</p>
+      <h2>Upload a labeled CSV</h2>
+      <p>Columns: <code>note_id</code>, <code>category</code>, <code>theme</code>, <code>claude_category</code> and <code>claude_theme</code>. A row with <code>category</code> is saved as a reviewed label. A row with only <code>claude_category</code> (an AI suggestion) goes to the <b>Review</b> tab. Excel CSV with <code>;</code> works too.</p>
       <div class="row">
         <input type="file" id="file" accept=".csv,text/csv">
-        <button class="btn primary" id="upload">Subir</button>
+        <button class="btn primary" id="upload">Upload</button>
       </div>
       <div id="report"></div>
     </div>
@@ -345,8 +357,8 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
   </section>
 </div>
 <footer class="site-foot">
-  Proyecto independiente, no es de la OSMF · Notas © colaboradores de OpenStreetMap (ODbL) ·
-  <a href="/">Mapa / Map</a> · <a href="/privacy">Privacidad / Privacy</a>
+  Independent project, not run by the OSMF · Notes © OpenStreetMap contributors (ODbL) ·
+  <a href="/">Map</a> · <a href="/privacy">Privacy</a>
 </footer>
 
 <div class="toast" id="toast"></div>
@@ -354,17 +366,17 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 3px; }
 <script>
 const $ = (s) => document.querySelector(s);
 // Language names from the browser (Intl), so every ISO code gets a name.
-const LANG_DISPLAY = (() => { try { return new Intl.DisplayNames(["es"], { type: "language" }); } catch { return null; } })();
+const LANG_DISPLAY = (() => { try { return new Intl.DisplayNames(["en"], { type: "language" }); } catch { return null; } })();
 function langName(code) {
-  if (code === "und") return "Sin idioma (cortas)";
+  if (code === "und") return "No language (short notes)";
   let name = "";
   try { name = LANG_DISPLAY ? LANG_DISPLAY.of(code) : ""; } catch { name = ""; }
   if (!name || name === code) return code;
   return `${name.charAt(0).toUpperCase()}${name.slice(1)} (${code})`;
 }
 const GROUPS = [
-  { grp: "map", title: "Hay que tocar el mapa" },
-  { grp: "close", title: "Se cierra sin tocar el mapa" },
+  { grp: "map", title: "Needs a map change" },
+  { grp: "close", title: "Close without a map change" },
   { grp: "unsure", title: "" },
 ];
 
@@ -376,13 +388,13 @@ const store = {
 let cats = [], themes = [], queue = [], idx = 0, session = 0, done = {};
 
 const TEMPLATE_NAMES = {
-  app_place_gone: "App: el lugar no existe",
-  app_poi_data: "App: datos del POI",
+  app_place_gone: "App: place does not exist",
+  app_poi_data: "App: POI data",
   app_note: "App (Organic Maps / CoMaps)",
-  sc_unable: "StreetComplete: no pudo responder",
+  sc_unable: "StreetComplete: could not answer",
   sc_note: "StreetComplete",
-  onosm: "OnOSM: formulario de negocio",
-  osb_moved: "Migrada de OpenStreetBugs",
+  onosm: "OnOSM: business form",
+  osb_moved: "Moved from OpenStreetBugs",
 };
 
 const THEME_COLORS = {
@@ -396,14 +408,14 @@ function chip(value, text, color, on) {
   return `<button type="button" class="chip" data-v="${esc(value)}" aria-pressed="${on}" style="--c:${color}">${esc(text)}</button>`;
 }
 function themeChips(selected, cls = "") {
-  return `<div class="chips ${cls}" role="group" aria-label="Tema">${themes.map((t) =>
-    chip(t.code, t.name_es, THEME_COLORS[t.code] || "var(--ink-soft)", t.code === selected)).join("")}</div>`;
+  return `<div class="chips ${cls}" role="group" aria-label="Theme">${themes.map((t) =>
+    chip(t.code, t.name_en, THEME_COLORS[t.code] || "var(--ink-soft)", t.code === selected)).join("")}</div>`;
 }
 function categoryChips(selected) {
   const list = ["map", "close", "unsure"].flatMap((g) => cats.filter((c) => c.grp === g));
-  return `<div class="chips rv-cat" role="group" aria-label="Categoría">${list.map((c) =>
-    chip(c.code, c.name_es, GROUP_COLORS[c.grp], c.code === selected)).join("")
-    }${chip(SKIP, "saltar, no guardar", "var(--mark)", selected === SKIP)}</div>`;
+  return `<div class="chips rv-cat" role="group" aria-label="Category">${list.map((c) =>
+    chip(c.code, c.name_en, GROUP_COLORS[c.grp], c.code === selected)).join("")
+    }${chip(SKIP, "skip, do not save", "var(--mark)", selected === SKIP)}</div>`;
 }
 function press(box, value) {
   box.querySelectorAll(".chip").forEach((b) => b.setAttribute("aria-pressed", b.dataset.v === value));
@@ -414,8 +426,8 @@ function noteBody(n) {
   const user = (n.user_text || "").trim();
   const full = (n.text || "").trim();
   const tpl = n.template ? `<div class="tpl"><span class="tpl-tag">${esc(TEMPLATE_NAMES[n.template] || n.template)}${n.poi_type ? " · " + esc(n.poi_type) : ""}</span>
-      <details><summary>texto completo</summary><div class="tpl-full">${esc(full)}</div></details></div>` : "";
-  const main = user ? esc(user) : `<em>${n.template ? "(solo plantilla, sin texto de la persona)" : "(sin texto)"}</em>`;
+      <details><summary>full text</summary><div class="tpl-full">${esc(full)}</div></details></div>` : "";
+  const main = user ? esc(user) : `<em>${n.template ? "(app template only, no text from the person)" : "(no text)"}</em>`;
   return { tpl, main, empty: !user };
 }
 
@@ -429,7 +441,7 @@ async function api(path, opts = {}) {
   const res = await fetch(path, { ...opts, credentials: "same-origin" });
   if (res.status === 401) {
     $("#login").focus();
-    throw new Error("Entra con tu cuenta de OSM");
+    throw new Error("Log in with your OSM account");
   }
   if (!res.ok) {
     let msg = res.statusText;
@@ -464,18 +476,18 @@ function renderAccount() {
 }
 
 function startHint() {
-  if (me.osm_login && !me.user) return "Entra con tu cuenta de OSM y elige un idioma.";
-  return me.osm_login ? "para empezar." : "y escribe tu usuario para empezar.";
+  if (me.osm_login && !me.user) return "Log in with your OSM account and pick a language.";
+  return me.osm_login ? "to start." : "and type your user name to start.";
 }
 
 function user() {
   // With OSM login the server takes the name from the session.
   if (me.osm_login) {
-    if (!me.user) { $("#login").focus(); throw new Error("Entra con tu cuenta de OSM"); }
+    if (!me.user) { $("#login").focus(); throw new Error("Log in with your OSM account"); }
     return me.user.name;
   }
   const u = $("#user").value.trim();
-  if (u.length < 2) { $("#user").focus(); throw new Error("Escribe tu usuario primero"); }
+  if (u.length < 2) { $("#user").focus(); throw new Error("Type your user name first"); }
   return u;
 }
 
@@ -494,15 +506,15 @@ function renderKeys() {
       n++;
       c.key = n === 10 ? "0" : String(n);
       const b = document.createElement("button");
-      b.className = `key ${c.grp}`; b.dataset.code = c.code; b.title = c.description || "";
-      b.innerHTML = `<kbd>${c.key}</kbd><span><b>${c.name_es}</b><em>${c.example ? "“" + c.example + "”" : "si dudas, no fuerces"}</em></span>`;
+      b.className = `key ${c.grp}`; b.dataset.code = c.code; b.title = c.description_en || c.description || "";
+      b.innerHTML = `<kbd>${c.key}</kbd><span><b>${c.name_en}</b><em>${(c.example_en || c.example) ? "“" + (c.example_en || c.example) + "”" : "if in doubt, do not force it"}</em></span>`;
       b.onclick = () => label(c.code);
       keys.appendChild(b);
     }
     div.appendChild(keys); box.appendChild(div);
   }
   $("#cat-table tbody").innerHTML = cats.map((c) =>
-    `<tr><td><code>${c.code}</code></td><td>${c.name_es}</td><td>${c.description || ""}</td><td>${c.example || ""}</td></tr>`).join("");
+    `<tr><td><code>${c.code}</code></td><td>${c.name_en}</td><td>${c.description_en || c.description || ""}</td><td>${c.example_en || c.example || ""}</td></tr>`).join("");
 }
 
 /* ---------- Labeling ---------- */
@@ -512,7 +524,7 @@ function renderCard() {
   const slot = $("#card-slot");
   document.querySelectorAll(".key").forEach((k) => k.classList.remove("current"));
   if (!queue.length || idx >= queue.length) {
-    slot.innerHTML = `<div class="card empty-state"><strong>${queue.length ? "Lote terminado" : "Elige un idioma"}</strong>${queue.length ? "Cargando más notas…" : startHint()}</div>`;
+    slot.innerHTML = `<div class="card empty-state"><strong>${queue.length ? "Batch done" : "Pick a language"}</strong>${queue.length ? "Loading more notes…" : startHint()}</div>`;
     $("#pos").textContent = "—"; return;
   }
   const n = queue[idx];
@@ -527,8 +539,8 @@ function renderCard() {
     <div class="note-text ${body.empty ? "empty" : ""}">${body.main}</div>
     ${body.tpl}
     <div class="theme-row">
-      <label>Tema</label>
-      ${n.theme_auto ? `<small>sugerido por el tipo de POI</small>` : ""}
+      <label>Theme</label>
+      ${n.theme_auto ? `<small>suggested from the POI type</small>` : ""}
     </div>
     ${themeChips(n.theme_pick, "card-theme")}
     <div class="bar"><i style="width:${(idx / queue.length) * 100}%"></i></div>
@@ -539,7 +551,7 @@ function renderCard() {
     n.theme_pick = n.theme_pick === b.dataset.v ? "" : b.dataset.v;
     press(e.currentTarget, n.theme_pick); b.blur();
   };
-  $("#pos").textContent = `Nota ${idx + 1} de ${queue.length} en este lote`;
+  $("#pos").textContent = `Note ${idx + 1} of ${queue.length} in this batch`;
   const prev = done[n.note_id];
   if (prev) document.querySelector(`.key[data-code="${prev}"]`)?.classList.add("current");
 }
@@ -550,7 +562,7 @@ async function loadBatch() {
   try {
     const res = await api(`/api/batch?lang=${encodeURIComponent(lang)}&size=50`);
     queue = await res.json(); idx = 0; done = {};
-    if (!queue.length) toast("No quedan notas sin etiqueta en este idioma 🎉");
+    if (!queue.length) toast("No notes left without a label in this language 🎉");
   } catch (e) { toast(e.message, true); queue = []; }
   renderCard();
 }
@@ -567,7 +579,8 @@ async function label(code) {
         theme: NO_THEME.has(code) ? "none" : n.theme_pick || null, claude_theme: n.theme_auto || null }] }) });
     if (!done[n.note_id]) session++;
     done[n.note_id] = code;
-    $("#session").textContent = `${session} etiquetadas en esta sesión`;
+    $("#session").textContent = `${session} labeled in this session`;
+    bumpBoard(1);
     next();
   } catch (e) { toast(e.message, true); }
 }
@@ -578,7 +591,7 @@ function back() { if (idx > 0) { idx--; renderCard(); } }
 /* ---------- CSV ---------- */
 $("#download").onclick = async () => {
   const lang = $("#lang").value;
-  if (!lang) return toast("Elige un idioma", true);
+  if (!lang) return toast("Pick a language", true);
   try {
     const res = await api(`/api/batch.csv?lang=${encodeURIComponent(lang)}&size=${$("#dl-size").value}`);
     const blob = await res.blob();
@@ -591,17 +604,18 @@ $("#download").onclick = async () => {
 
 $("#upload").onclick = async () => {
   const f = $("#file").files[0];
-  if (!f) return toast("Elige un archivo", true);
+  if (!f) return toast("Pick a file", true);
   let u; try { u = user(); } catch (e) { return toast(e.message, true); }
   const fd = new FormData(); fd.append("file", f); fd.append("user", u);
   try {
     const r = await (await api("/api/import", { method: "POST", body: fd })).json();
     $("#report").innerHTML = `<table>
-      <tr><th>Filas</th><th>Guardadas</th><th>Para revisar</th><th>Vacías (saltadas)</th><th>Errores</th></tr>
+      <tr><th>Rows</th><th>Saved</th><th>To review</th><th>Empty (skipped)</th><th>Errors</th></tr>
       <tr><td class="num">${r.rows}</td><td class="num">${r.saved}</td><td class="num">${r.suggested}</td><td class="num">${r.skipped_blank}</td><td class="num">${r.error_count}</td></tr>
-    </table>` + (r.errors.length ? `<table><tr><th>Línea</th><th>note_id</th><th>Error</th></tr>${
+    </table>` + (r.errors.length ? `<table><tr><th>Line</th><th>note_id</th><th>Error</th></tr>${
       r.errors.map((e) => `<tr><td class="num">${e.line}</td><td>${esc(e.note_id)}</td><td>${esc(e.error)}</td></tr>`).join("")}</table>` : "");
-    toast(`${r.saved} etiquetas guardadas · ${r.suggested} sugerencias para revisar`);
+    toast(`${r.saved} labels saved · ${r.suggested} suggestions to review`);
+    loadBoard();
     if (r.suggested) loadReview();
   } catch (e) { toast(e.message, true); }
 };
@@ -611,7 +625,7 @@ let reviewRows = [];
 const SKIP = "__skip";
 const NO_THEME = new Set(["spam", "empty", "personal_data"]);
 
-function catName(code) { return (cats.find((c) => c.code === code) || {}).name_es || code; }
+function catName(code) { return (cats.find((c) => c.code === code) || {}).name_en || code; }
 function catGroup(code) { return (cats.find((c) => c.code === code) || {}).grp || ""; }
 
 function reviewSummary() {
@@ -619,15 +633,15 @@ function reviewSummary() {
   const skipped = reviewRows.filter((r) => r.pick === SKIP).length;
   const save = reviewRows.length - skipped;
   $("#review-summary").textContent = reviewRows.length
-    ? `${save} para guardar · ${changed} cambiadas · ${skipped} saltadas` : "";
+    ? `${save} to save · ${changed} changed · ${skipped} skipped` : "";
   $("#approve").disabled = !save;
-  $("#approve").textContent = save ? `Aprobar ${save} notas` : "Aprobar página";
+  $("#approve").textContent = save ? `Approve ${save} notes` : "Approve page";
 }
 
 function renderReview() {
   const list = $("#review-list");
   if (!reviewRows.length) {
-    list.innerHTML = `<div class="card empty-state"><strong>Nada para revisar</strong>Sube un CSV con <code>claude_category</code> en la pestaña CSV.</div>`;
+    list.innerHTML = `<div class="card empty-state"><strong>Nothing to review</strong>Upload a CSV with <code>claude_category</code> in the CSV tab.</div>`;
     reviewSummary(); return;
   }
   list.innerHTML = reviewRows.map((n, i) => `<div class="rv ${catGroup(n.pick)}" data-i="${i}">
@@ -640,9 +654,9 @@ function renderReview() {
       ${noteBody(n).tpl}
     </div>
     <div class="rv-pick">
-      <div class="pick-group"><label>Categoría<span>¿qué hay que hacer?</span></label>${categoryChips(n.pick)}</div>
-      <div class="pick-group rv-theme-box${NO_THEME.has(n.pick) ? " locked" : ""}"><label>Tema<span>¿de qué trata?</span></label>${themeChips(n.theme_pick, "rv-theme")}</div>
-      <small>IA: ${esc(catName(n.suggestion))}${n.pick !== n.suggestion && n.pick !== SKIP ? " · <b>cambiada</b>" : ""}</small>
+      <div class="pick-group"><label>Category<span>what needs to be done?</span></label>${categoryChips(n.pick)}</div>
+      <div class="pick-group rv-theme-box${NO_THEME.has(n.pick) ? " locked" : ""}"><label>Theme<span>what is it about?</span></label>${themeChips(n.theme_pick, "rv-theme")}</div>
+      <small>AI: ${esc(catName(n.suggestion))}${n.pick !== n.suggestion && n.pick !== SKIP ? " · <b>changed</b>" : ""}</small>
     </div>
   </div>`).join("");
   list.querySelectorAll(".rv .rv-theme").forEach((box) => (box.onclick = (e) => {
@@ -665,7 +679,7 @@ function renderReview() {
     }
     row.querySelector(".rv-theme-box").classList.toggle("locked", NO_THEME.has(v));
     row.className = `rv ${catGroup(v)}${v === SKIP ? " skip" : ""}${v !== reviewRows[i].suggestion && v !== SKIP ? " changed" : ""}`;
-    row.querySelector("small").innerHTML = `IA: ${esc(catName(reviewRows[i].suggestion))}${row.classList.contains("changed") ? " · <b>cambiada</b>" : ""}`;
+    row.querySelector("small").innerHTML = `AI: ${esc(catName(reviewRows[i].suggestion))}${row.classList.contains("changed") ? " · <b>changed</b>" : ""}`;
     reviewSummary();
   }));
   reviewSummary();
@@ -677,7 +691,7 @@ async function loadReview() {
     reviewRows = r.notes.map((n) => ({ ...n, pick: n.suggestion,
       theme_pick: NO_THEME.has(n.suggestion) ? "none" : n.suggestion_theme || "" }));
     $("#review-count").textContent = r.pending || "";
-    $("#review-pending").textContent = r.pending ? `${r.pending.toLocaleString("es")} pendientes${$("#lang").value ? " en " + langName($("#lang").value) : ""}` : "";
+    $("#review-pending").textContent = r.pending ? `${r.pending.toLocaleString("en")} pending${$("#lang").value ? " in " + langName($("#lang").value) : ""}` : "";
   } catch (e) { toast(e.message, true); reviewRows = []; }
   renderReview();
 }
@@ -693,29 +707,76 @@ $("#approve").onclick = async () => {
     await api("/api/labels", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ user: u, labels }) });
     session += labels.length;
-    $("#session").textContent = `${session} etiquetadas en esta sesión`;
-    toast(`${labels.length} notas aprobadas`);
+    $("#session").textContent = `${session} labeled in this session`;
+    bumpBoard(labels.length);
+    toast(`${labels.length} notes approved`);
     window.scrollTo({ top: 0, behavior: "smooth" });
     loadReview();
   } catch (e) { toast(e.message, true); $("#approve").disabled = false; }
 };
 
-/* ---------- Stats ---------- */
+/* ---------- Stats and the board of people ---------- */
+const AI_USERS = new Set(["ia", "ai", "claude"]);
+let stats = null;
+
+// Labels per person (all languages), most first. AI pre-labels are counted apart.
+function people(s) {
+  const by = {};
+  for (const r of s.by_user) by[r.user_name] = (by[r.user_name] || 0) + r.labels;
+  return Object.entries(by).sort((a, b) => b[1] - a[1]);
+}
+
+function renderBoard() {
+  const box = $("#board");
+  if (!stats) { box.hidden = true; return; }
+  const all = people(stats);
+  const humans = all.filter(([u]) => !AI_USERS.has(u.toLowerCase()));
+  const ai = all.filter(([u]) => AI_USERS.has(u.toLowerCase())).reduce((n, [, v]) => n + v, 0);
+  const total = humans.reduce((n, [, v]) => n + v, 0);
+  const mine = me.user?.name || $("#user").value.trim();
+  box.hidden = false;
+  box.innerHTML = `<span class="board-total"><b>${total.toLocaleString("en")}</b> labels by ${humans.length} ${humans.length === 1 ? "person" : "people"}</span>
+    <ol>${humans.slice(0, 8).map(([u, n], i) =>
+      `<li class="${u === mine ? "me" : ""}"><i>${i + 1}</i>${esc(u)} <b>${n.toLocaleString("en")}</b></li>`).join("")}</ol>
+    ${ai ? `<span class="ai">+ ${ai.toLocaleString("en")} AI pre-labels</span>` : ""}`;
+}
+
+async function loadBoard() {
+  try { stats = await (await api("/api/stats")).json(); renderBoard(); } catch { /* board is optional */ }
+}
+
+// Count my new labels at once, without asking the server again.
+function bumpBoard(n) {
+  if (!stats) return;
+  const u = me.user?.name || $("#user").value.trim();
+  if (!u) return;
+  const row = stats.by_user.find((r) => r.user_name === u);
+  if (row) row.labels += n; else stats.by_user.push({ user_name: u, lang: "", labels: n });
+  renderBoard();
+}
+
 async function loadStats() {
   try {
     const s = await (await api("/api/stats")).json();
+    stats = s; renderBoard();
     const c = s.claude;
     const pct = c.with_claude ? Math.round((100 * c.claude_right) / c.with_claude) : null;
-    $("#stats").innerHTML = `<h2>Avance</h2>
-      <p>${pct === null ? "Todavía no hay etiquetas con sugerencia de Claude." : `Claude acertó en <b>${pct}%</b> de ${c.with_claude} notas revisadas.`}</p>
-      <table><tr><th>Usuario</th><th>Idioma</th><th class="num">Etiquetas</th><th>Última</th></tr>
-      ${s.by_user.map((r) => `<tr><td>${esc(r.user_name)}</td><td>${esc(r.lang)}</td><td class="num">${r.labels}</td><td>${(r.last || "").slice(0, 16).replace("T", " ")}</td></tr>`).join("") || "<tr><td colspan=4>Sin etiquetas aún</td></tr>"}
+    const ppl = people(s);
+    const top = ppl[0]?.[1] || 1;
+    $("#stats").innerHTML = `<h2>Progress</h2>
+      <p>${pct === null ? "No labels with an AI suggestion yet." : `The AI was right in <b>${pct}%</b> of ${c.with_claude.toLocaleString("en")} reviewed notes.`}</p>
+      <table><tr><th>Person</th><th class="num">Labels</th><th></th></tr>
+      ${ppl.map(([u, n]) => `<tr><td>${esc(u)}${AI_USERS.has(u.toLowerCase()) ? " <small>(AI)</small>" : ""}</td><td class="num">${n.toLocaleString("en")}</td>
+        <td class="bar-cell"><span style="width:${Math.max(2, (100 * n) / top)}%"></span></td></tr>`).join("") || "<tr><td colspan=3>No labels yet</td></tr>"}
       </table>
-      <table><tr><th>Idioma</th><th>Categoría</th><th class="num">Etiquetas</th></tr>
-      ${s.by_category.map((r) => `<tr><td>${esc(r.lang)}</td><td>${esc((cats.find((c) => c.code === r.category) || {}).name_es || r.category)}</td><td class="num">${r.labels}</td></tr>`).join("")}
+      <table><tr><th>Person</th><th>Language</th><th class="num">Labels</th><th>Last</th></tr>
+      ${s.by_user.map((r) => `<tr><td>${esc(r.user_name)}</td><td>${esc(r.lang)}</td><td class="num">${r.labels}</td><td>${(r.last || "").slice(0, 16).replace("T", " ")}</td></tr>`).join("")}
       </table>
-      <table><tr><th>Tema</th><th class="num">Etiquetas</th></tr>
-      ${s.by_theme.map((r) => `<tr><td>${esc((themes.find((t) => t.code === r.theme) || {}).name_es || "— sin tema —")}</td><td class="num">${r.labels}</td></tr>`).join("")}
+      <table><tr><th>Language</th><th>Category</th><th class="num">Labels</th></tr>
+      ${s.by_category.map((r) => `<tr><td>${esc(r.lang)}</td><td>${esc((cats.find((c) => c.code === r.category) || {}).name_en || r.category)}</td><td class="num">${r.labels}</td></tr>`).join("")}
+      </table>
+      <table><tr><th>Theme</th><th class="num">Labels</th></tr>
+      ${s.by_theme.map((r) => `<tr><td>${esc((themes.find((t) => t.code === r.theme) || {}).name_en || "— no theme —")}</td><td class="num">${r.labels}</td></tr>`).join("")}
       </table>`;
   } catch (e) { toast(e.message, true); }
 }
@@ -779,13 +840,14 @@ addEventListener("hashchange", () => {
       setLang(start);
     } else renderCard();
     loadReview();
+    loadBoard();
     try {
       const langs = await (await api("/api/langs")).json();
-      sel.innerHTML = `<option value="">— elige —</option>` + langs.map((l) =>
-        `<option value="${esc(l.lang)}">${esc(langName(l.lang))} · ${l.labeled}/${l.notes.toLocaleString("es")}</option>`).join("");
+      sel.innerHTML = `<option value="">— pick one —</option>` + langs.map((l) =>
+        `<option value="${esc(l.lang)}">${esc(langName(l.lang))} · ${l.labeled}/${l.notes.toLocaleString("en")}</option>`).join("");
       ensureLangOption(start);
       sel.value = start || "";
-    } catch (e) { toast("No se pudo cargar la lista de idiomas: " + e.message, true); }
+    } catch (e) { toast("Could not load the language list: " + e.message, true); }
   } catch (e) { toast(e.message, true); renderCard(); }
 })();
 </script>
