@@ -113,6 +113,41 @@ WHERE m.category = 'personal_data'
 """
 
 
+# Notes with personal data, for moderators: rebuilt every run (a few thousand rows),
+# so a person's label always wins. A person's other label takes the note out.
+PRIVATE_REBUILD_SQL = """
+DELETE FROM ml.private_notes;
+INSERT INTO ml.private_notes (note_id, geom, created_at, country, lang, app, template,
+                              category, category_conf, category_2, category_2_conf,
+                              theme, theme_conf, source, model_version, predicted_at, text)
+WITH ids AS (
+  SELECT p.note_id FROM ml.note_predictions p
+  WHERE p.category = 'personal_data'
+    AND NOT EXISTS (SELECT 1 FROM ml.note_labels h
+                    WHERE h.note_id = p.note_id AND h.category <> 'personal_data')
+  UNION
+  SELECT h.note_id FROM ml.note_labels h WHERE h.category = 'personal_data')
+SELECT p.note_id,
+       ST_SetSRID(ST_MakePoint(n.longitude::float8, n.latitude::float8), 4326),
+       n.created_at, COALESCE(c.country_name_en, c.country_name), l.lang, l.app, l.template,
+       'personal_data',
+       CASE WHEN p.category = 'personal_data' THEN p.category_conf ELSE 1 END,
+       p.category_2, p.category_2_conf, p.theme, p.theme_conf,
+       CASE WHEN p.category = 'personal_data' THEN p.source ELSE 'person' END,
+       p.model_version, p.predicted_at,
+       left(COALESCE(l.user_text, t.body, ''), 300)
+FROM ids
+JOIN ml.note_predictions p ON p.note_id = ids.note_id
+JOIN notes n ON n.note_id = p.note_id AND n.status::text = 'open'
+JOIN ml.note_lang l ON l.note_id = p.note_id
+LEFT JOIN countries c ON c.country_id = n.id_country
+LEFT JOIN LATERAL (
+  SELECT x.body FROM note_comments nc
+  JOIN note_comments_text x ON x.note_id = nc.note_id AND x.sequence_action = nc.sequence_action
+  WHERE nc.note_id = p.note_id AND nc.event = 'opened' LIMIT 1) t ON true;
+"""
+
+
 def sync_map(full: bool = False) -> None:
     """Keep ml.map_notes in step with the predictions and the note status."""
     t0 = time.time()
@@ -122,11 +157,14 @@ def sync_map(full: bool = False) -> None:
         added = conn.execute(MAP_UPSERT_SQL, {"since": since}).rowcount
         removed = conn.execute(MAP_DELETE_SQL).rowcount
         conn.commit()
+        with conn.cursor() as cur:   # one transaction: moderators never see it empty
+            cur.execute(PRIVATE_REBUILD_SQL)
+            private = cur.rowcount
+        conn.commit()
         if added > 10_000:
             conn.execute("ANALYZE ml.map_notes")
-    if added or removed:
-        print(f"  map: {added:,} added or updated, {removed:,} removed "
-              f"in {time.time() - t0:.0f} s", flush=True)
+    print(f"  map: {added:,} added or updated, {removed:,} removed, "
+          f"{private:,} private in {time.time() - t0:.0f} s", flush=True)
 
 
 def model_input(template: str, poi_type: str, context: str, user_text: str) -> str:

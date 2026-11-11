@@ -21,6 +21,7 @@ export default function App() {
   const [mode, setMode] = useState("points");
   const [list, setList] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [mapLoading, setMapLoading] = useState(false);
   const [page, setPage] = useState(0);
   const [selectedId, setSelectedId] = useState(initial.note);
   const [selected, setSelected] = useState(null);
@@ -89,7 +90,8 @@ export default function App() {
       <main className="stage">
         <PlaceSearch t={t} lang={lang} onFly={setFlyTo} />
         <MapView filters={filters} selected={selected} onSelect={(id) => select(id)} onView={setView}
-                 flyTo={flyTo} start={initial.view} t={t} onMode={setMode} />
+                 flyTo={flyTo} start={initial.view} t={t} onMode={setMode} onLoading={setMapLoading} />
+        {mapLoading ? <div className="map-loading" role="status"><span className="spin" />{t.loading}</div> : null}
         {selectedId ? (
           <NoteDetail key={selectedId} id={selectedId} t={t} names={names} me={me}
                       options={options || { categories: [], themes: [] }}

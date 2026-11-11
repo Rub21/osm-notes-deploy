@@ -41,7 +41,7 @@ function pieElement(cats, n) {
 }
 
 /** The map. Loads points (or grid cells when zoomed out) for the current view. */
-export default function MapView({ filters, selected, onSelect, onView, flyTo, start, t, onMode }) {
+export default function MapView({ filters, selected, onSelect, onView, flyTo, start, t, onMode, onLoading }) {
   const box = useRef(null);
   const map = useRef(null);
   const ready = useRef(false);
@@ -70,8 +70,8 @@ export default function MapView({ filters, selected, onSelect, onView, flyTo, st
     for (const [key, mk] of pies.current) if (!next.has(key)) mk.remove();
     pies.current = next;
   };
-  const handlers = useRef({ onSelect, onView, onMode });
-  handlers.current = { onSelect, onView, onMode };
+  const handlers = useRef({ onSelect, onView, onMode, onLoading });
+  handlers.current = { onSelect, onView, onMode, onLoading };
 
   const load = () => {
     const m = map.current;
@@ -79,14 +79,17 @@ export default function MapView({ filters, selected, onSelect, onView, flyTo, st
     const b = m.getBounds();
     const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
     abort.current?.abort();
-    abort.current = new AbortController();
-    api.points(filtersRef.current, bbox, m.getZoom(), abort.current.signal)
+    const ctl = new AbortController();
+    abort.current = ctl;
+    handlers.current.onLoading?.(true);
+    api.points(filtersRef.current, bbox, m.getZoom(), ctl.signal)
       .then((fc) => {
         m.getSource("notes")?.setData(fc.mode === "grid" ? EMPTY : fc);
         drawPies(m, fc);
         handlers.current.onMode(fc.mode);
       })
-      .catch((e) => { if (e.name !== "AbortError") console.warn("points", e); });
+      .catch((e) => { if (e.name !== "AbortError") console.warn("points", e); })
+      .finally(() => { if (abort.current === ctl) handlers.current.onLoading?.(false); });
   };
 
   useEffect(() => {

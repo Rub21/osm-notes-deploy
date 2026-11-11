@@ -9,6 +9,7 @@ export const COLORS = {
   not_mappable: "#8a8f98",
   empty: "#c3c6cc",
   spam: "#c0392b",
+  personal_data: "#3a3a3a",
 };
 export const colorOf = (c) => COLORS[c] || "#555";
 

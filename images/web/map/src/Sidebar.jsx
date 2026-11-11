@@ -29,11 +29,15 @@ export default function Sidebar(props) {
         <button className="ghost icon" onClick={onRefresh} title={t.refresh} aria-label={t.refresh}>⟳</button>
       </div>
       <Mix t={t} names={names} byCat={list?.by_category} />
+      <div className={`progress${loading ? " on" : ""}`} aria-hidden="true" />
 
       <>
           {list?.restricted ? <p className="restricted">🔒 {t.restricted}</p> : null}
           {mode === "grid" ? <p className="hint">{t.zoomIn}</p> : null}
-          <ol className="list">
+          {loading && !list ? (
+            <div className="loader" role="status"><span className="spin big" /><span>{t.loading}</span></div>
+          ) : null}
+          <ol className={`list${loading ? " stale" : ""}`} aria-busy={loading}>
             {list?.items.map((n) => (
               <li key={n.note_id}>
                 <button className={`item${n.note_id === selectedId ? " sel" : ""}`} style={{ "--cat": colorOf(n.category) }}
@@ -60,7 +64,6 @@ export default function Sidebar(props) {
             ))}
           </ol>
           {list && !list.items.length && !loading && !list.restricted ? <p className="muted pad">{t.empty}</p> : null}
-          {loading && !list ? <p className="muted pad">{t.loading}</p> : null}
           {pages > 1 ? <Pager page={page} pages={pages} setPage={setPage} /> : null}
       </>
     </aside>

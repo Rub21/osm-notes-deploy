@@ -536,7 +536,7 @@ def labels_csv(lang: str = "", user: str = "", since: str = "", category: str = 
 # ---------------------------------------------------------------------------
 # Map viewer (main page /): open notes with the model's prediction, from ml.map_notes
 # (filled by the classifier service). personal_data notes are never there: they are in
-# the ml.private_notes view, shown only to moderators when they filter by that category.
+# the ml.private_notes table, shown only to moderators when they filter by that category.
 # Everyone else gets only the total count (options.private_total).
 #
 # - GET  /                          the viewer page (React, built into static/map)
@@ -774,8 +774,14 @@ def map_feedback(body: FeedbackIn, request: Request):
     out = save_labels(user, [(body.note_id, body.category, None, body.theme or None, None)])
     with pool.connection() as conn:
         if body.category == PRIVATE:   # hide it now, not at the next classifier run
+            conn.execute("""
+                INSERT INTO ml.private_notes SELECT * FROM ml.map_notes WHERE note_id = %s
+                ON CONFLICT (note_id) DO NOTHING""", (body.note_id,))
+            conn.execute("UPDATE ml.private_notes SET category = %s, source = 'person' "
+                         "WHERE note_id = %s", (PRIVATE, body.note_id))
             conn.execute("DELETE FROM ml.map_notes WHERE note_id = %s", (body.note_id,))
         elif private:                  # a moderator says it has no personal data: show it
+            conn.execute("DELETE FROM ml.private_notes WHERE note_id = %s", (body.note_id,))
             conn.execute("""
                 INSERT INTO ml.map_notes (note_id, geom, created_at, country, lang, app, template,
                     category, category_conf, theme, source, model_version, predicted_at, text)
