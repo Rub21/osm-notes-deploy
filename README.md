@@ -72,15 +72,20 @@ StreetComplete, OnOSM) with long fixed template text.
 
 `lang-updater` keeps all of this up to date for new notes every 5 minutes.
 
-## Labeling page
+## Website: map and labeling page
 
-`labeler` serves a page and API to label notes by language, one by one or
+`web` (`images/web`) serves the site:
+
+- `/`: map of open notes with the model's category and theme, filters, list,
+  place search, feedback and GeoJSON export for MapRoulette. React app in
+  `images/web/map`, data from `ml.map_notes` (filled by `classifier`).
+- `/label`: page and API to label notes by language, one by one or
 by CSV (download, fill `category`, upload). Labels go to `ml.note_labels`,
 in the same DB but in our own `ml` schema (see `sql/ml_schema.sql`).
 
 1. Run the extractor once: it creates the `ml` schema, the limited
    `labeler` DB role and the language of every note (`ml.note_lang`).
-2. `docker compose up -d labeler`
+2. `docker compose up -d web`
 3. From your laptop: `ssh -L 8090:127.0.0.1:8090 root@<server>` and open
    http://localhost:8090
 

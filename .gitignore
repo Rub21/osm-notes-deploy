@@ -1,8 +1,8 @@
 .env
 output/
-images/labeler/__pycache__/*
+images/web/__pycache__/*
 images/extractor/__pycache__/*
 models/
 images/classifier/__pycache__/*
-images/labeler/viewer/node_modules/
-images/labeler/viewer/dist/
+images/web/map/node_modules/
+images/web/map/dist/

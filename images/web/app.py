@@ -65,7 +65,7 @@ USER_RE = re.compile(r"^[\w .@-]{2,40}$")
 
 # Uses PGHOST, PGUSER (labeler), PGPASSWORD, PGDATABASE.
 pool = ConnectionPool(kwargs={"row_factory": dict_row}, min_size=1, max_size=5, open=True)
-app = FastAPI(title="OSM notes labeler")
+app = FastAPI(title="OSM notes")
 app.add_middleware(
     SessionMiddleware, secret_key=SESSION_SECRET, session_cookie="labeler_session",
     max_age=30 * 24 * 3600, same_site="lax", https_only=PUBLIC_URL.startswith("https"))

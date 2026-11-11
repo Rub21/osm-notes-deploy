@@ -138,12 +138,13 @@ services:
     cpus: ${CLASSIFIER_CPUS:-2}
     mem_limit: ${CLASSIFIER_MEM:-2g}
 
-  # Labeling page + API. Needs the ml schema: run the extractor once first.
-  # Only on localhost; open it with an SSH tunnel:
+  # Website + API: the map of classified notes (/), the labeling page (/label)
+  # and /api. Needs the ml schema: run the extractor once first.
+  # On localhost; public through cloudflared. Or with an SSH tunnel:
   #   ssh -L 8090:127.0.0.1:8090 root@server  ->  http://localhost:8090
-  labeler:
-    build: ./images/labeler
-    image: osm-notes/labeler:latest
+  web:
+    build: ./images/web
+    image: osm-notes/web:latest
     restart: unless-stopped
     depends_on:
       db:
@@ -161,8 +162,12 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:-}
     ports:
       - "127.0.0.1:${LABELER_PORT:-8090}:8000"
+    networks:
+      default:
+        # The Cloudflare tunnel points to http://labeler:8000 (old service name).
+        aliases: [labeler]
 
-  # Public access to the labeler through a Cloudflare Tunnel (no open ports).
+  # Public access to the site through a Cloudflare Tunnel (no open ports).
   # In the Cloudflare dashboard, set the tunnel's public hostname to
   # http://labeler:8000 and protect it with Cloudflare Access.
   cloudflared:
@@ -172,7 +177,7 @@ services:
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
     depends_on:
-      - labeler
+      - web
 
 volumes:
   pgdata:

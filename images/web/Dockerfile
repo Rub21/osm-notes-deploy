@@ -1,11 +1,11 @@
-# Labeling API + page: serve note batches by language, save labels,
-# export/import CSV. Connects as the limited `labeler` Postgres role.
-# Also serves the map viewer (/map), a React app built in the first stage.
-FROM node:22-slim AS viewer
-WORKDIR /viewer
-COPY viewer/package.json viewer/package-lock.json ./
+# Website + API: the map of classified notes (/, React app in map/, built in
+# the first stage), the labeling page (/label) and /api.
+# Connects as the limited `labeler` Postgres role.
+FROM node:22-slim AS map
+WORKDIR /map
+COPY map/package.json map/package-lock.json ./
 RUN npm ci --no-audit --no-fund
-COPY viewer/ ./
+COPY map/ ./
 RUN npm run build
 
 FROM python:3.12-slim
@@ -20,7 +20,7 @@ RUN pip install --no-cache-dir \
 
 COPY app.py /app/app.py
 COPY static/ /app/static/
-COPY --from=viewer /viewer/dist/ /app/static/map/
+COPY --from=map /map/dist/ /app/static/map/
 WORKDIR /app
 
 EXPOSE 8000
