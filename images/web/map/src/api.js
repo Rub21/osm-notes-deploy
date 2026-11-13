@@ -81,7 +81,7 @@ export const api = {
     return getJson(`/api/map/list?${p}`, { signal });
   },
   note: (id) => getJson(`/api/map/note/${id}`),
-  stats: (user) => getJson(`/api/stats${user ? `?user=${encodeURIComponent(user)}` : ""}`),
+  stats: (user) => getJson(`/api/map/stats${user ? `?user=${encodeURIComponent(user)}` : ""}`),
   feedback: (body) => getJson("/api/map/feedback", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
   }),

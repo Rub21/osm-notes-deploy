@@ -847,8 +847,8 @@ def map_export(request: Request, download: bool = False):
 # have no id, no text and no link.
 #
 # - GET /stats                  the page (same React app as the map)
-# - GET /api/stats              everyone (cached 5 minutes)
-# - GET /api/stats?user=<name>  also one OSM user: their labels and the notes they closed
+# - GET /api/map/stats              everyone (cached 5 minutes)
+# - GET /api/map/stats?user=<name>  also one OSM user: their labels and the notes they closed
 #
 # "Model right" only uses labels saved after the model's prediction for that note, and
 # not "unsure": labels made before (for training) would make the model look better.
@@ -950,8 +950,8 @@ def stats_page():
     return FileResponse("/app/static/map/index.html")
 
 
-@app.get("/api/stats")
-def stats(request: Request, user: str | None = Query(None, max_length=256)):
+@app.get("/api/map/stats")
+def map_stats(request: Request, user: str | None = Query(None, max_length=256)):
     data = {"everyone": stats_everyone()}
     if user and user.strip():
         data["user"] = stats_user(user.strip(), request)
