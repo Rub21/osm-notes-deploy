@@ -27,14 +27,18 @@ export default function Header({ t, lang, setLang, me, options }) {
       ) : <span />}
 
       <nav className="who">
+        <a className="ghost" href="/stats">{t.statsTitle}</a>
         <a className="cta" href="/label" title={t.helpHint}>{t.help}</a>
         <button className="ghost" onClick={() => setLang(lang === "en" ? "es" : "en")} aria-label="language">
           {lang === "en" ? "ES" : "EN"}
         </button>
         {me?.osm_login ? (me.user ? (
-          <a className="ghost user" href={`/auth/logout?next=${encodeURIComponent(here())}`} title={t.logout}>
-            <span className="avatar">{me.user.name.slice(0, 1).toUpperCase()}</span>{me.user.name}
-          </a>
+          <>
+            <a className="ghost user" href={`/stats?user=${encodeURIComponent(me.user.name)}`} title={t.myStats}>
+              <span className="avatar">{me.user.name.slice(0, 1).toUpperCase()}</span>{me.user.name}
+            </a>
+            <a className="ghost" href={`/auth/logout?next=${encodeURIComponent(here())}`} title={t.logout} aria-label={t.logout}>⎋</a>
+          </>
         ) : (
           <a className="ghost" href={`/auth/login?next=${encodeURIComponent(here())}`}>{t.login}</a>
         )) : null}

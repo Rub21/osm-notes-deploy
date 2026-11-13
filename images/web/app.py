@@ -839,3 +839,120 @@ def map_export(request: Request, download: bool = False):
         headers["Content-Disposition"] = 'attachment; filename="osm_notes.geojson"'
     return JSONResponse({"type": "FeatureCollection", "features": feats},
                         media_type="application/geo+json", headers=headers)
+
+
+# ---------------------------------------------------------------------------
+# Stats page (/stats): what people say about the model, and notes closed on OSM.
+# Read only. Notes with personal data only count in the totals: in the lists they
+# have no id, no text and no link.
+#
+# - GET /stats                  the page (same React app as the map)
+# - GET /api/stats              everyone (cached 5 minutes)
+# - GET /api/stats?user=<name>  also one OSM user: their labels and the notes they closed
+#
+# "Model right" only uses labels saved after the model's prediction for that note, and
+# not "unsure": labels made before (for training) would make the model look better.
+# ---------------------------------------------------------------------------
+
+STATS_TTL = 300
+_stats_cache: dict = {}
+
+STATS_LABELS = """
+  h AS (SELECT note_id, user_name, category, updated_at FROM ml.note_labels
+        WHERE user_name <> 'ia'),
+  f AS (SELECT h.*, p.category AS model FROM h JOIN ml.note_predictions p USING (note_id)
+        WHERE h.updated_at >= p.predicted_at AND h.category <> 'unsure')"""
+
+
+def _private_row(r: dict) -> dict:
+    """Keep the row but drop what points to a note with personal data."""
+    if PRIVATE in (r.get("category"), r.get("model")) or r.get("private"):
+        return {**r, "note_id": None, "body": None, "private": True}
+    return {**r, "private": False}
+
+
+def stats_everyone() -> dict:
+    if _stats_cache.get("at", 0) > time.time() - STATS_TTL:
+        return _stats_cache["data"]
+    with pool.connection() as conn:
+        total = conn.execute(f"""WITH {STATS_LABELS}
+            SELECT (SELECT count(*) FROM h) AS reviewed,
+                   (SELECT count(DISTINCT user_name) FROM h) AS people,
+                   (SELECT count(*) FROM f) AS checked,
+                   (SELECT count(*) FROM f WHERE category = model) AS ok""").fetchone()
+        by_cat = conn.execute(f"""WITH {STATS_LABELS}
+            SELECT model AS category, count(*) AS n,
+                   count(*) FILTER (WHERE category = model) AS ok
+            FROM f GROUP BY 1
+            ORDER BY count(*) FILTER (WHERE category = model)::float / count(*) DESC, 2 DESC""").fetchall()
+        fixes = conn.execute(f"""WITH {STATS_LABELS}
+            SELECT model AS "from", category AS "to", count(*) AS n FROM f
+            WHERE category <> model GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 10""").fetchall()
+        top = conn.execute(f"""WITH {STATS_LABELS}
+            SELECT user_name, count(*) AS n FROM h GROUP BY 1 ORDER BY 2 DESC LIMIT 20""").fetchall()
+        latest = conn.execute(f"""WITH {STATS_LABELS}
+            SELECT h.note_id, h.user_name, h.category, p.category AS model, h.updated_at
+            FROM h LEFT JOIN ml.note_predictions p USING (note_id)
+            ORDER BY h.updated_at DESC LIMIT 20""").fetchall()
+        closed = conn.execute("""
+            SELECT count(*) AS n FROM note_comments
+            WHERE event = 'closed' AND created_at > now() - interval '30 days'""").fetchone()["n"]
+    data = {**total, "closed_30d": closed, "by_category": by_cat, "fixes": fixes, "top": top,
+            "latest": [_private_row(r) for r in latest], "at": time.time()}
+    _stats_cache.update(at=time.time(), data=data)
+    return data
+
+
+def stats_user(name: str, request: Request) -> dict:
+    me = request.session.get("user") or {}
+    with pool.connection() as conn:
+        mine = conn.execute(f"""WITH {STATS_LABELS},
+            r AS (SELECT user_name, count(*) AS n FROM h GROUP BY 1)
+            SELECT (SELECT count(*) FROM h WHERE user_name = %(u)s) AS reviewed,
+                   (SELECT count(*) FROM f WHERE user_name = %(u)s) AS checked,
+                   (SELECT count(*) FROM f WHERE user_name = %(u)s AND category = model) AS ok,
+                   (SELECT count(*) + 1 FROM r
+                    WHERE n > (SELECT COALESCE(max(n), 0) FROM r WHERE user_name = %(u)s)) AS rank""",
+                            {"u": name}).fetchone()
+        labels = conn.execute(f"""WITH {STATS_LABELS}
+            SELECT h.note_id, h.category, p.category AS model, h.updated_at,
+                   n.status::text AS status
+            FROM h LEFT JOIN ml.note_predictions p USING (note_id)
+            LEFT JOIN notes n USING (note_id)
+            WHERE h.user_name = %(u)s ORDER BY h.updated_at DESC LIMIT 100""",
+                              {"u": name}).fetchall()
+        # The OSM id is safer than the name (people rename); use it for the logged-in user.
+        uid = me.get("id") if me.get("name") == name else None
+        if uid is None:
+            row = conn.execute("SELECT user_id FROM users WHERE username = %s", (name,)).fetchone()
+            uid = row["user_id"] if row else None
+        closed_n, closed = 0, []
+        if uid is not None:
+            closed_n = conn.execute("""SELECT count(*) AS n FROM note_comments
+                                       WHERE id_user = %s AND event = 'closed'""",
+                                    (uid,)).fetchone()["n"]
+            closed = conn.execute("""
+                SELECT nc.note_id, nc.created_at, left(t.body, 300) AS body, p.category AS model,
+                       EXISTS (SELECT 1 FROM ml.note_labels h WHERE h.note_id = nc.note_id
+                               AND h.category = 'personal_data') AS private
+                FROM note_comments nc
+                LEFT JOIN note_comments_text t
+                       ON t.note_id = nc.note_id AND t.sequence_action = nc.sequence_action
+                LEFT JOIN ml.note_predictions p ON p.note_id = nc.note_id
+                WHERE nc.id_user = %s AND nc.event = 'closed'
+                ORDER BY nc.created_at DESC LIMIT 100""", (uid,)).fetchall()
+    return {"name": name, **mine, "labels": [_private_row(r) for r in labels],
+            "closed_n": closed_n, "closed": [_private_row(r) for r in closed]}
+
+
+@app.get("/stats")
+def stats_page():
+    return FileResponse("/app/static/map/index.html")
+
+
+@app.get("/api/stats")
+def stats(request: Request, user: str | None = Query(None, max_length=256)):
+    data = {"everyone": stats_everyone()}
+    if user and user.strip():
+        data["user"] = stats_user(user.strip(), request)
+    return _no_store(data)
