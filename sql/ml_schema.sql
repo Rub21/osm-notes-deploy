@@ -239,8 +239,8 @@ GRANT SELECT ON ml.categories, ml.themes, ml.note_lang, ml.note_predictions, ml.
                 ml.private_notes TO labeler;
 -- A label moves a note at once between the public map and the private list
 -- (personal_data or not), without waiting for the classifier.
-GRANT INSERT, DELETE ON ml.map_notes, ml.private_notes TO labeler;
-GRANT UPDATE ON ml.private_notes TO labeler;
+-- A person's fix (👎) also changes the note's category on the map at once.
+GRANT INSERT, DELETE, UPDATE ON ml.map_notes, ml.private_notes TO labeler;
 GRANT SELECT, INSERT, UPDATE ON ml.note_labels TO labeler;
 GRANT USAGE ON SEQUENCE ml.note_labels_id_seq TO labeler;
 GRANT SELECT, INSERT, UPDATE ON ml.note_suggestions TO labeler;

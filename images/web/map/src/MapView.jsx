@@ -41,7 +41,7 @@ function pieElement(cats, n) {
 }
 
 /** The map. Loads points (or grid cells when zoomed out) for the current view. */
-export default function MapView({ filters, selected, onSelect, onView, flyTo, start, t, onMode, onLoading }) {
+export default function MapView({ filters, reload, selected, onSelect, onView, flyTo, start, t, onMode, onLoading }) {
   const box = useRef(null);
   const map = useRef(null);
   const ready = useRef(false);
@@ -157,7 +157,7 @@ export default function MapView({ filters, selected, onSelect, onView, flyTo, st
     filtersRef.current = filters;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters]);
+  }, [filters, reload]);
 
   useEffect(() => {
     selectedRef.current = selected;

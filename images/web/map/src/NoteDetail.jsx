@@ -4,7 +4,7 @@ import { api, colorOf } from "./api.js";
 const pct = (x) => (x == null ? "" : `${Math.round(x * 100)}%`);
 
 /** Right panel with one note: prediction, text, links, and 👍/👎 feedback. */
-export default function NoteDetail({ id, t, names, options, me, onClose, onLoaded }) {
+export default function NoteDetail({ id, t, names, options, me, onClose, onLoaded, onSaved }) {
   const [note, setNote] = useState(null);
   const [error, setError] = useState("");
   const [fixing, setFixing] = useState(false);
@@ -35,7 +35,9 @@ export default function NoteDetail({ id, t, names, options, me, onClose, onLoade
       await api.feedback({ note_id: id, category, theme: th || null, user: name || null });
       setStatus(t.saved);
       setFixing(false);
-      setNote((n) => ({ ...n, my_label: { category, theme: th } }));
+      setNote((n) => ({ ...n, category, category_conf: 1, category_2: null, theme: th || n.theme,
+                        source: "person", my_label: { category, theme: th } }));
+      onSaved?.();
     } catch (e) {
       setStatus(e.message);
     }
@@ -72,7 +74,7 @@ export default function NoteDetail({ id, t, names, options, me, onClose, onLoade
       <p className="meta">
         {note.category_2 ? <>{t.second}: {names.cat[note.category_2] || note.category_2} {pct(note.category_2_conf)} · </> : null}
         {t.theme}: {names.theme[note.theme] || note.theme} {note.theme_conf != null && pct(note.theme_conf)}
-        {note.source === "rule" ? ` · ${t.rule}` : ""}
+        {note.source === "rule" ? ` · ${t.rule}` : note.source === "person" ? ` · ${t.byPerson}` : ""}
       </p>
 
       <blockquote className="note-text">{shown || "—"}</blockquote>

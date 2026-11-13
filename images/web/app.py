@@ -715,7 +715,7 @@ MAP_SORT = {"conf": "category_conf DESC, note_id DESC", "low": "category_conf AS
             "new": "created_at DESC NULLS LAST", "old": "created_at ASC NULLS LAST"}
 MAP_COLUMNS = """note_id, ST_X(geom) AS lon, ST_Y(geom) AS lat, created_at, country, lang, app,
                  template, category, category_conf, category_2, category_2_conf, theme,
-                 theme_conf, model_version, text"""
+                 theme_conf, source, model_version, text"""
 
 
 @app.get("/api/map/list")
@@ -805,6 +805,12 @@ def map_feedback(body: FeedbackIn, request: Request):
                     %(predicted_at)s, %(text)s)
                 ON CONFLICT (note_id) DO NOTHING""",
                 {**private, "cat": body.category, "th": body.theme or None})
+        else:                          # a person's label wins over the model on the map
+            conn.execute("""
+                UPDATE ml.map_notes SET category = %s, category_conf = 1,
+                    category_2 = NULL, category_2_conf = NULL,
+                    theme = COALESCE(%s, theme), source = 'person'
+                WHERE note_id = %s""", (body.category, body.theme or None, body.note_id))
     return out
 
 

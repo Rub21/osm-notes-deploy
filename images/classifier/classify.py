@@ -74,8 +74,13 @@ INSERT INTO ml.map_notes (note_id, geom, created_at, country, lang, app, templat
 SELECT p.note_id,
        ST_SetSRID(ST_MakePoint(n.longitude::float8, n.latitude::float8), 4326),
        n.created_at, COALESCE(c.country_name_en, c.country_name), l.lang, l.app, l.template,
-       p.category, p.category_conf, p.category_2, p.category_2_conf,
-       p.theme, p.theme_conf, p.source, p.model_version, p.predicted_at,
+       COALESCE(h.category, p.category),
+       CASE WHEN h.category IS NULL THEN p.category_conf ELSE 1 END,
+       CASE WHEN h.category IS NULL THEN p.category_2 END,
+       CASE WHEN h.category IS NULL THEN p.category_2_conf END,
+       COALESCE(h.theme, p.theme), p.theme_conf,
+       CASE WHEN h.category IS NULL THEN p.source ELSE 'person' END,
+       p.model_version, p.predicted_at,
        left(COALESCE(l.user_text, t.body, ''), 300)
 FROM ml.note_predictions p
 JOIN notes n ON n.note_id = p.note_id AND n.status::text = 'open'
@@ -85,6 +90,11 @@ LEFT JOIN LATERAL (
   SELECT x.body FROM note_comments nc
   JOIN note_comments_text x ON x.note_id = nc.note_id AND x.sequence_action = nc.sequence_action
   WHERE nc.note_id = p.note_id AND nc.event = 'opened' LIMIT 1) t ON true
+-- The newest label from a person (not the AI) wins over the model.
+LEFT JOIN LATERAL (
+  SELECT hl.category, hl.theme FROM ml.note_labels hl
+  WHERE hl.note_id = p.note_id AND hl.user_name <> 'ia' AND hl.category <> 'unsure'
+  ORDER BY hl.updated_at DESC LIMIT 1) h ON true
 WHERE p.predicted_at > COALESCE(%(since)s::timestamptz, '-infinity')
   AND p.category <> 'personal_data'
   AND NOT EXISTS (SELECT 1 FROM ml.note_labels h

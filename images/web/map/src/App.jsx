@@ -27,6 +27,7 @@ export default function App() {
   const [selected, setSelected] = useState(null);
   const [flyTo, setFlyTo] = useState(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [reload, setReload] = useState(0);   // bump to load the map points again
   const abort = useRef(null);
 
   const setLang = (l) => {
@@ -77,6 +78,9 @@ export default function App() {
     if (!view || !inView(note, view.bbox)) setFlyTo({ lon: note.lon, lat: note.lat, zoom: 15 });
   };
 
+  // After 👍/👎 the note may change category: load the map and the list again.
+  const onSaved = () => { setReload((r) => r + 1); loadList(page); };
+
   return (
     <div className="shell">
     <Header t={t} lang={lang} setLang={setLang} me={me} options={options} />
@@ -89,13 +93,14 @@ export default function App() {
                mode={mode} />
       <main className="stage">
         <PlaceSearch t={t} lang={lang} onFly={setFlyTo} />
-        <MapView filters={filters} selected={selected} onSelect={(id) => select(id)} onView={setView}
+        <MapView filters={filters} reload={reload} selected={selected} onSelect={(id) => select(id)} onView={setView}
                  flyTo={flyTo} start={initial.view} t={t} onMode={setMode} onLoading={setMapLoading} />
         {mapLoading ? <div className="map-loading" role="status"><span className="spin" />{t.loading}</div> : null}
         {selectedId ? (
           <NoteDetail key={selectedId} id={selectedId} t={t} names={names} me={me}
                       options={options || { categories: [], themes: [] }}
-                      onClose={() => { setSelectedId(null); setSelected(null); }} onLoaded={onLoaded} />
+                      onClose={() => { setSelectedId(null); setSelected(null); }} onLoaded={onLoaded}
+                      onSaved={onSaved} />
         ) : null}
         <Legend t={t} names={names} />
         {filtersOpen ? (
