@@ -303,3 +303,9 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--ink);
   .barrow .hbar, .barrow .muted { grid-column: 1 / -1; }
   .card { overflow-x: auto; }
 }
+
+/* StreetComplete photos in the note panel. */
+.photos { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+.photos a { display: block; line-height: 0; }
+.photos img { width: 96px; height: 96px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line-2); background: var(--bg-2); }
+.photos a:hover img { border-color: var(--ink-3); }

@@ -65,6 +65,8 @@ _SC_NEW_LABEL = r'(?:\s+for\s+https?://\S+\s*\((.*?)\),?\s*via StreetComplete)?'
 SC_QUESTION_NEW = re.compile(r'Can[\'’]t answer\s+"([^"]+)"' + _SC_NEW_LABEL, re.I)
 SC_OVERLAY_NEW = re.compile(r'In overlay\s+"([^"]*)"' + _SC_NEW_LABEL, re.I)
 SC_PHOTO = re.compile(r"Attached photo\(s\):", re.I)
+# Some StreetComplete notes have only the photo block, with no "via StreetComplete" line.
+SC_PHOTO_ONLY = re.compile(r"Attached photo\(s\):\s*https?://(streetcomplete\.app|westnordost\.de)/", re.I)
 POI_NAME = re.compile(r"POI name:\s*(.*?)\s*(?=POI types?:|OSM (?:data version|snapshot date)|#|$)", FLAGS)
 POI_NO_NAME = re.compile(r"POI has no name", re.I)
 CONTEXT_MAX = 160
@@ -168,6 +170,10 @@ def split_note(text: str) -> Parsed:
     if SC_SIGNATURE.search(text):
         user = SC_CONTEXT.sub("", SC_SIGNATURE.sub("", text))
         return Parsed("sc_note", _clean(user), None, None, None, sc_context(text))
+
+    if SC_PHOTO_ONLY.search(text):
+        return Parsed("sc_note", _clean(SC_ATTACHMENTS.sub("", text)), None, None, None,
+                      sc_context(text))
 
     if ONOSM.search(text):
         body = ONOSM.sub("", text)

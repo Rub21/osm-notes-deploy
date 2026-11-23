@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import { api, colorOf } from "./api.js";
 
 const pct = (x) => (x == null ? "" : `${Math.round(x * 100)}%`);
+// Photos StreetComplete attaches (westnordost.de is its old host and redirects).
+// Only these hosts: we do not load images from any link people write.
+const PHOTO = /https?:\/\/(?:streetcomplete\.app|westnordost\.de)\/p\/\d+\.(?:jpe?g|png|webp)/gi;
 
 /** Right panel with one note: prediction, text, links, and 👍/👎 feedback. */
 export default function NoteDetail({ id, t, names, options, me, onClose, onLoaded, onSaved }) {
@@ -62,6 +65,7 @@ export default function NoteDetail({ id, t, names, options, me, onClose, onLoade
 
   const osm = me?.osm_url || "https://www.openstreetmap.org";
   const shown = note.user_text || note.text;
+  const photos = [...new Set((note.full_text || note.text || "").match(PHOTO) || [])].slice(0, 6);
   return (
     <aside className="detail" style={{ "--cat": colorOf(note.category) }}>
       <button className="x" onClick={onClose} aria-label={t.close}>×</button>
@@ -78,6 +82,15 @@ export default function NoteDetail({ id, t, names, options, me, onClose, onLoade
       </p>
 
       <blockquote className="note-text">{shown || "—"}</blockquote>
+      {photos.length ? (
+        <div className="photos">
+          {photos.map((u) => (
+            <a key={u} href={u} target="_blank" rel="noreferrer" title={t.photo}>
+              <img src={u} alt={t.photo} loading="lazy" referrerPolicy="no-referrer" />
+            </a>
+          ))}
+        </div>
+      ) : null}
       {note.context ? <p className="ctx"><span>{t.appContext}</span> {note.context}</p> : null}
       {note.full_text && note.full_text !== shown ? (
         <details className="orig"><summary>{t.original}</summary><pre>{note.full_text}</pre></details>
