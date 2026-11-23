@@ -62,7 +62,7 @@ WATCH_INTERVAL = int(os.environ.get("WATCH_INTERVAL", "300"))
 # Note ids per step. Each step is committed, so it is the unit of progress.
 RANGE_SIZE = int(os.environ.get("RANGE_SIZE", "100000"))
 # Bump when templates.py or the language logic changes: older rows are redone.
-EXTRACT_VERSION = 3
+EXTRACT_VERSION = 4
 
 QUERY = """
 SELECT n.note_id,

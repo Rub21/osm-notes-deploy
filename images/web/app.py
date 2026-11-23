@@ -814,15 +814,39 @@ def map_feedback(body: FeedbackIn, request: Request):
     return out
 
 
+MAP_PAGE_MAX = 5000
+
+
 @app.get("/api/map/export.geojson")
-def map_export(request: Request, download: bool = False):
-    """Filtered notes as GeoJSON, highest confidence first, up to MAP_EXPORT_MAX.
-    MapRoulette can read this URL directly (one task per note)."""
+def map_export(request: Request, download: bool = False,
+               limit: int | None = Query(None, ge=1, le=MAP_PAGE_MAX),
+               after: int = Query(0, ge=0)):
+    """Filtered notes as GeoJSON. MapRoulette can read this URL directly (one task per note).
+    - No `limit`: highest confidence first, up to MAP_EXPORT_MAX (as before).
+    - With `limit`: pages in note_id order, plus the full first comment (`full_text`).
+      The answer has `next`, the URL of the next page (null on the last one).
+      Pages by note_id (not offset) so they do not shift when notes change.
+    Every note has `template` (e.g. sc_unable = StreetComplete quest, sc_note = free note)
+    and `context` (e.g. the StreetComplete question and element)."""
     where, params = map_filters(request)
+    paged = limit is not None
+    if paged:
+        where += " AND note_id > %(after)s"
+        params.update(after=after, lim=limit)
+        order, lim = "note_id", "%(lim)s"
+    else:
+        order, lim = "category_conf DESC", str(MAP_EXPORT_MAX)
+    full = """, (SELECT x.body FROM note_comments nc
+                JOIN note_comments_text x
+                  ON x.note_id = nc.note_id AND x.sequence_action = nc.sequence_action
+                WHERE nc.note_id = m.note_id AND nc.event = 'opened' LIMIT 1) AS full_text"""
     with pool.connection() as conn:
-        rows = conn.execute(f"""SELECT {MAP_COLUMNS} FROM ml.map_notes WHERE {where}
-                                ORDER BY category_conf DESC LIMIT {MAP_EXPORT_MAX}""",
-                            params).fetchall()
+        rows = conn.execute(f"""
+            SELECT m.*, l.context, l.user_text{full if paged else ""}
+            FROM (SELECT {MAP_COLUMNS} FROM ml.map_notes WHERE {where}
+                  ORDER BY {order} LIMIT {lim}) m
+            LEFT JOIN ml.note_lang l ON l.note_id = m.note_id
+            ORDER BY {"m.note_id" if paged else "m.category_conf DESC"}""", params).fetchall()
     names = {c["code"]: c["name_en"] for c in categories().values()}
     feats = [{"type": "Feature", "id": r["note_id"],
               "geometry": {"type": "Point", "coordinates": [round(r["lon"], 6), round(r["lat"], 6)]},
@@ -830,15 +854,26 @@ def map_export(request: Request, download: bool = False):
                              "note_url": f"{OSM_URL}/note/{r['note_id']}",
                              "category": r["category"], "category_name": names.get(r["category"]),
                              "confidence": round(r["category_conf"], 3), "theme": r["theme"],
-                             "lang": r["lang"], "app": r["app"],
+                             "lang": r["lang"], "app": r["app"], "template": r["template"],
+                             "context": r["context"],
                              "created_at": r["created_at"].isoformat() if r["created_at"] else None,
-                             "text": r["text"], "model_version": r["model_version"]}}
+                             "text": r["text"], "user_text": r["user_text"],
+                             **({"full_text": r["full_text"]} if paged else {}),
+                             "model_version": r["model_version"]}}
              for r in rows]
+    out = {"type": "FeatureCollection", "features": feats}
+    if paged:
+        nxt = None
+        if len(rows) == limit:
+            q = dict(request.query_params)
+            q.update(after=str(rows[-1]["note_id"]), limit=str(limit))
+            q.pop("download", None)
+            nxt = f"{PUBLIC_URL}{request.url.path}?{urlencode(q)}"
+        out["next"] = nxt
     headers = dict(MAP_NO_STORE)
     if download:
         headers["Content-Disposition"] = 'attachment; filename="osm_notes.geojson"'
-    return JSONResponse({"type": "FeatureCollection", "features": feats},
-                        media_type="application/geo+json", headers=headers)
+    return JSONResponse(jsonable_encoder(out), media_type="application/geo+json", headers=headers)
 
 
 # ---------------------------------------------------------------------------

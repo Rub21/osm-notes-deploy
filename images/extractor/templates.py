@@ -47,8 +47,11 @@ APP_HASHTAG = re.compile(r"\s*#(organicmaps|comaps|mapsme|omaps)\b.*$", FLAGS)
 SC_ATTACHMENTS = re.compile(r"\s*(Attached photo\(s\)|GPS Trace):.*$", FLAGS)
 
 # "Unable to answer ..." or "In context of overlay ..." + "via StreetComplete X:" + user text.
+# Since v6x: 'Can't answer "Q" for https://osm.org/way/1 (Label), via StreetComplete 64.1:'
+# and 'In overlay "Surfaces" for https://osm.org/way/1 (Label), via StreetComplete 64.1:'.
 SC_PREFIXED = re.compile(
-    r'^\s*(Unable to answer|In context of)\b.*?via StreetComplete(_ee)?[^:\n]*:\s*(.*)$', FLAGS)
+    r'^\s*(Unable to answer|In context of|Can[\'’]t answer|In overlay)\b.*?'
+    r'via StreetComplete(_ee)?[^:\n]*:\s*(.*)$', FLAGS)
 # The signature can be followed by attachments ("Attached photo(s): ...").
 SC_SIGNATURE = re.compile(r"\s*via StreetComplete(_ee)?\b.*$", FLAGS)
 SC_CONTEXT = re.compile(r'^\s*In context of (overlay )?"[^"]*"\s*[–-][^–\n]*[–-]\s*https?://\S+\s*', re.I)
@@ -57,6 +60,10 @@ SC_CONTEXT = re.compile(r'^\s*In context of (overlay )?"[^"]*"\s*[–-][^–\n]*
 # label ("Natural Wood", "Felix Goye (Bus Stop)") and the overlay name.
 SC_QUESTION = re.compile(r'Unable to answer\s+"([^"]+)"(?:\s*[–-]\s*([^–\n]*?)\s*[–-]\s*https?://)?', re.I)
 SC_OVERLAY = re.compile(r'In context of (?:overlay )?"([^"]*)"(?:\s*[–-]\s*([^–\n]*?)\s*[–-]\s*https?://)?', re.I)
+# New format: the element label is in brackets after the link (it can have brackets too).
+_SC_NEW_LABEL = r'(?:\s+for\s+https?://\S+\s*\((.*?)\),?\s*via StreetComplete)?'
+SC_QUESTION_NEW = re.compile(r'Can[\'’]t answer\s+"([^"]+)"' + _SC_NEW_LABEL, re.I)
+SC_OVERLAY_NEW = re.compile(r'In overlay\s+"([^"]*)"' + _SC_NEW_LABEL, re.I)
 SC_PHOTO = re.compile(r"Attached photo\(s\):", re.I)
 POI_NAME = re.compile(r"POI name:\s*(.*?)\s*(?=POI types?:|OSM (?:data version|snapshot date)|#|$)", FLAGS)
 POI_NO_NAME = re.compile(r"POI has no name", re.I)
@@ -117,7 +124,8 @@ def _context(*parts: str | None) -> str | None:
 
 def sc_context(text: str) -> str | None:
     """Question / overlay, element label and whether photos are attached."""
-    q, o = SC_QUESTION.search(text), SC_OVERLAY.search(text)
+    q = SC_QUESTION.search(text) or SC_QUESTION_NEW.search(text)
+    o = SC_OVERLAY.search(text) or SC_OVERLAY_NEW.search(text)
     head = f"Q: {q.group(1)}" if q else (f"overlay: {o.group(1)}" if o else None)
     label = (q or o).group(2) if (q or o) else None
     return _context(head, label, "photo" if SC_PHOTO.search(text) else None)
@@ -153,7 +161,7 @@ def split_note(text: str) -> Parsed:
 
     m = SC_PREFIXED.search(text)
     if m:
-        template = "sc_unable" if m.group(1).lower().startswith("unable") else "sc_note"
+        template = "sc_unable" if m.group(1).lower().startswith(("unable", "can")) else "sc_note"
         return Parsed(template, _clean(SC_ATTACHMENTS.sub("", m.group(3))), None, None, None,
                       sc_context(text))
 
