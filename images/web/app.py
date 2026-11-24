@@ -842,7 +842,7 @@ def map_export(request: Request, download: bool = False,
                 WHERE nc.note_id = m.note_id AND nc.event = 'opened' LIMIT 1) AS full_text"""
     with pool.connection() as conn:
         rows = conn.execute(f"""
-            SELECT m.*, l.context, l.user_text{full if paged else ""}
+            SELECT m.*, l.note_id AS l_id, l.template AS l_template, l.context, l.user_text{full if paged else ""}
             FROM (SELECT {MAP_COLUMNS} FROM ml.map_notes WHERE {where}
                   ORDER BY {order} LIMIT {lim}) m
             LEFT JOIN ml.note_lang l ON l.note_id = m.note_id
@@ -854,7 +854,9 @@ def map_export(request: Request, download: bool = False,
                              "note_url": f"{OSM_URL}/note/{r['note_id']}",
                              "category": r["category"], "category_name": names.get(r["category"]),
                              "confidence": round(r["category_conf"], 3), "theme": r["theme"],
-                             "lang": r["lang"], "app": r["app"], "template": r["template"],
+                             "lang": r["lang"], "app": r["app"],
+                             # ml.note_lang is updated by the extractor; the map copy can be older
+                             "template": r["l_template"] if r["l_id"] else r["template"],
                              "context": r["context"],
                              "created_at": r["created_at"].isoformat() if r["created_at"] else None,
                              "text": r["text"], "user_text": r["user_text"],
