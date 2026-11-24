@@ -45,7 +45,8 @@ import httpx
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import (FileResponse, JSONResponse, PlainTextResponse, RedirectResponse,
+                               StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
@@ -816,6 +817,28 @@ def map_feedback(body: FeedbackIn, request: Request):
 
 MAP_PAGE_MAX = 5000
 
+# Export limit: EXPORT_RATE requests per minute per IP, so bots can't load the server.
+# Enough for MapRoulette and for a script that waits a few seconds between pages.
+# The web only listens on localhost, so outside traffic comes through Cloudflare, which
+# puts the visitor's IP in CF-Connecting-IP (request.client is the tunnel).
+EXPORT_RATE = int(os.environ.get("EXPORT_RATE", "10"))
+_export_hits: dict[str, list[float]] = {}
+
+
+def export_rate_limit(request: Request) -> None:
+    ip = request.headers.get("cf-connecting-ip") or (request.client.host if request.client else "?")
+    now = time.time()
+    hits = [t for t in _export_hits.get(ip, []) if t > now - 60]
+    if len(hits) >= EXPORT_RATE:
+        wait = int(60 - (now - hits[0])) + 1
+        raise HTTPException(429, f"Too many exports: max {EXPORT_RATE} per minute. "
+                                 f"Wait {wait} s.", headers={"Retry-After": str(wait)})
+    hits.append(now)
+    _export_hits[ip] = hits
+    if len(_export_hits) > 10_000:   # forget old IPs
+        for k in [k for k, v in _export_hits.items() if v[-1] < now - 60]:
+            del _export_hits[k]
+
 
 @app.get("/api/map/export.geojson")
 def map_export(request: Request, download: bool = False,
@@ -828,6 +851,7 @@ def map_export(request: Request, download: bool = False,
       Pages by note_id (not offset) so they do not shift when notes change.
     Every note has `template` (e.g. sc_unable = StreetComplete quest, sc_note = free note)
     and `context` (e.g. the StreetComplete question and element)."""
+    export_rate_limit(request)
     where, params = map_filters(request)
     paged = limit is not None
     if paged:
@@ -980,6 +1004,12 @@ def stats_user(name: str, request: Request) -> dict:
                 ORDER BY nc.created_at DESC LIMIT 100""", (uid,)).fetchall()
     return {"name": name, **mine, "labels": [_private_row(r) for r in labels],
             "closed_n": closed_n, "closed": [_private_row(r) for r in closed]}
+
+
+@app.get("/robots.txt", response_class=PlainTextResponse)
+def robots():
+    """Search engines can show the pages, but should not crawl the API."""
+    return "User-agent: *\nDisallow: /api/\nDisallow: /auth/\n"
 
 
 @app.get("/stats")
