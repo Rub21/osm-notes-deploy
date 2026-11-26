@@ -179,7 +179,7 @@ export default function NoteDetail({ id, t, names, options, me, onClose, onLoade
       ) : null}
       {note.context ? <p className="ctx"><span>{t.appContext}</span> {note.context}</p> : null}
       {note.full_text && note.full_text !== shown ? (
-        <details className="orig"><summary>{t.original}</summary><pre>{note.full_text}</pre></details>
+        <details className="orig" open><summary>{t.original}</summary><pre>{note.full_text}</pre></details>
       ) : null}
 
       <p className="meta">
