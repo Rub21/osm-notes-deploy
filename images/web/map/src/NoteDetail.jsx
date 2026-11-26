@@ -7,14 +7,14 @@ const REASONS = ["done", "spam", "empty", "not_mappable", "other"];
 const CLOSE_TEXT = {
   en: {
     done: "Fixed on the map. Thanks for the note!",
-    spam: "Closing: this looks like spam or a test.",
+    spam: "Closing: this is advertising or spam, not information for the map.",
     empty: "Closing: the note has no information we can act on.",
     not_mappable: "Closing: this is not something we can map in OpenStreetMap.",
     other: "",
   },
   es: {
     done: "Corregido en el mapa. ¡Gracias por la nota!",
-    spam: "Cierro la nota: parece spam o una prueba.",
+    spam: "Cierro la nota: es publicidad o spam, no información para el mapa.",
     empty: "Cierro la nota: no tiene información para actuar.",
     not_mappable: "Cierro la nota: no es algo que se pueda mapear en OpenStreetMap.",
     other: "",

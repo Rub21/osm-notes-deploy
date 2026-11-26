@@ -61,7 +61,7 @@ export const TEXT = {
     closeExpired: "OSM access expired. Click again to log in.",
     reasons: {
       done: "Fixed on the map",
-      spam: "Spam or test",
+      spam: "Spam / advertising",
       empty: "No useful information",
       not_mappable: "Not mappable",
       other: "Other",
@@ -182,7 +182,7 @@ export const TEXT = {
     closeExpired: "El acceso a OSM venció. Haz clic otra vez para entrar.",
     reasons: {
       done: "Ya corregido en el mapa",
-      spam: "Spam o prueba",
+      spam: "Spam / publicidad",
       empty: "Sin información útil",
       not_mappable: "No se puede mapear",
       other: "Otro",
