@@ -1,5 +1,90 @@
 import { useEffect, useState } from "react";
 import { api, colorOf } from "./api.js";
+import { canClose, closeNote } from "./osm.js";
+
+const REASONS = ["done", "spam", "empty", "not_mappable", "other"];
+// Comment posted on OSM when closing; Spanish for Spanish notes, else English. Editable.
+const CLOSE_TEXT = {
+  en: {
+    done: "Fixed on the map. Thanks for the note!",
+    spam: "Closing: this looks like spam or a test.",
+    empty: "Closing: the note has no information we can act on.",
+    not_mappable: "Closing: this is not something we can map in OpenStreetMap.",
+    other: "",
+  },
+  es: {
+    done: "Corregido en el mapa. ¡Gracias por la nota!",
+    spam: "Cierro la nota: parece spam o una prueba.",
+    empty: "Cierro la nota: no tiene información para actuar.",
+    not_mappable: "Cierro la nota: no es algo que se pueda mapear en OpenStreetMap.",
+    other: "",
+  },
+};
+
+/** Close the note on OSM with a reason and a public comment. */
+function CloseBox({ note, t, me, onClosed }) {
+  const words = CLOSE_TEXT[note.lang === "es" ? "es" : "en"];
+  const first = REASONS.includes(note.category) ? note.category : "done";
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState(first);
+  const [text, setText] = useState(words[first]);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [switchUser, setSwitchUser] = useState(false);
+
+  const pick = (r) => {
+    // Keep the person's own text; only swap our default ones.
+    if (Object.values(words).includes(text)) setText(words[r]);
+    setReason(r);
+  };
+
+  const submit = () => {   // no await before closeNote: the login popup must open now
+    setBusy(true); setMsg("");
+    closeNote(me, note.note_id, text, switchUser)
+      .then(async (res) => {
+        setSwitchUser(false);
+        await api.close({ note_id: note.note_id, reason });
+        onClosed(res === "already" ? t.closedBefore : t.closedOk);
+      })
+      .catch((e) => {
+        if (e.code === "other_user") {
+          setSwitchUser(true);
+          setMsg(t.closeOtherUser.replace("{name}", e.name).replace("{me}", me.user.name));
+        } else if (e.code === "popup") setMsg(t.closePopup);
+        else if (e.code === "expired") setMsg(t.closeExpired);
+        else setMsg(e.message);
+      })
+      .finally(() => setBusy(false));
+  };
+
+  if (!open) {
+    return (
+      <div className="close-osm">
+        <button onClick={() => setOpen(true)}>✓ {t.closeOnOsm}</button>
+        {msg ? <p className="status">{msg}</p> : null}
+      </div>
+    );
+  }
+  return (
+    <div className="close-osm fix">
+      <label>{t.closeReason}
+        <select value={reason} onChange={(e) => pick(e.target.value)} disabled={busy}>
+          {REASONS.map((r) => <option key={r} value={r}>{t.reasons[r]}</option>)}
+        </select>
+      </label>
+      <label>{t.closeComment}
+        <textarea rows={3} value={text} maxLength={2000} onChange={(e) => setText(e.target.value)} disabled={busy} />
+      </label>
+      <div className="row">
+        <button className="primary" onClick={submit} disabled={busy}>{busy ? t.closing : t.closeBtn}</button>
+        {/* Always on: if the OSM pop-up is closed without approving, osm-auth never answers. */}
+        <button onClick={() => { setOpen(false); setBusy(false); setMsg(""); }}>{t.cancel}</button>
+      </div>
+      <p className="muted small">{t.closeHint}</p>
+      {msg ? <p className="status">{msg}</p> : null}
+    </div>
+  );
+}
 
 const pct = (x) => (x == null ? "" : `${Math.round(x * 100)}%`);
 // Photos StreetComplete attaches (westnordost.de is its old host and redirects).
@@ -14,6 +99,7 @@ export default function NoteDetail({ id, t, names, options, me, onClose, onLoade
   const [cat, setCat] = useState("");
   const [theme, setTheme] = useState("");
   const [status, setStatus] = useState("");
+  const [closed, setClosed] = useState(false);
   const [name, setName] = useState(() => {
     try { return localStorage.getItem("viewer_user") || ""; } catch { return ""; }
   });
@@ -142,6 +228,12 @@ export default function NoteDetail({ id, t, names, options, me, onClose, onLoade
           </>
         )}
         {status ? <p className="status">{status}</p> : null}
+        {canClose(me) && !closed ? (
+          <CloseBox note={note} t={t} me={me} onClosed={(msg) => {
+            setClosed(true); setStatus(msg);
+            onSaved?.();
+          }} />
+        ) : null}
         {note.labels?.length ? (
           <details className="people"><summary>{t.people} ({note.labels.length})</summary>
             <ul>{note.labels.map((l) => (

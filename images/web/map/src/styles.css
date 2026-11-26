@@ -206,6 +206,10 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--ink);
 .feedback button:hover { background: var(--bg-2); }
 .feedback button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 .fix { display: flex; flex-direction: column; gap: 6px; }
+.close-osm { border-top: 1px dashed var(--line); margin-top: 10px; padding-top: 10px; }
+.close-osm label { display: flex; flex-direction: column; gap: 3px; color: var(--ink-2); }
+.close-osm textarea { font: inherit; resize: vertical; padding: 6px; border: 1px solid var(--line-2); border-radius: 6px; }
+.close-osm .small { font-size: 12px; margin: 0; }
 .name { margin-bottom: 6px; }
 .status { color: var(--ink); font-weight: 500; margin: 8px 0 0; }
 .mine { margin: 0 0 8px; color: var(--ink-2); }

@@ -1,4 +1,5 @@
 import { ago } from "./i18n.js";
+import { osmLogout } from "./osm.js";
 
 const fmt = (n) => (n == null ? "" : n.toLocaleString());
 
@@ -37,7 +38,7 @@ export default function Header({ t, lang, setLang, me, options }) {
             <a className="ghost user" href={`/stats?user=${encodeURIComponent(me.user.name)}`} title={t.myStats}>
               <span className="avatar">{me.user.name.slice(0, 1).toUpperCase()}</span>{me.user.name}
             </a>
-            <a className="ghost" href={`/auth/logout?next=${encodeURIComponent(here())}`} title={t.logout} aria-label={t.logout}>⎋</a>
+            <a className="ghost" href={`/auth/logout?next=${encodeURIComponent(here())}`} onClick={() => osmLogout(me)} title={t.logout} aria-label={t.logout}>⎋</a>
           </>
         ) : (
           <a className="ghost" href={`/auth/login?next=${encodeURIComponent(here())}`}>{t.login}</a>

@@ -85,6 +85,9 @@ export const api = {
   feedback: (body) => getJson("/api/map/feedback", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
   }),
+  close: (body) => getJson("/api/map/close", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  }),
   exportUrl: (filters, bbox, download) => {
     const p = filterParams(filters, bbox);
     if (download) p.set("download", "1");

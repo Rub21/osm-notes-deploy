@@ -158,6 +158,8 @@ services:
       # OSM OAuth 2.0 login. Empty OSM_CLIENT_ID = no login (local dev).
       OSM_CLIENT_ID: ${OSM_CLIENT_ID:-}
       OSM_CLIENT_SECRET: ${OSM_CLIENT_SECRET:-}
+      # Public OSM app (no secret, write_notes) to close notes from the browser.
+      OSM_NOTES_CLIENT_ID: ${OSM_NOTES_CLIENT_ID:-}
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8090}
       SESSION_SECRET: ${SESSION_SECRET:-}
       # Notes with personal data are shown only to OSM moderators/admins and to

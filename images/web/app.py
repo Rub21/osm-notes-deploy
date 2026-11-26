@@ -18,6 +18,7 @@
 - GET  /, /api/map/*              map viewer of the model's predictions (see below)
 - GET  /label                      labeling page
 - GET  /auth/login, /auth/callback, /auth/logout   OSM OAuth 2.0 login
+- GET  /land.html                 popup landing of osm-auth (close notes, see /api/map/close)
 
 Login: when OSM_CLIENT_ID is set, writes need an OSM login and the label
 is saved with the OSM username. Without it (local dev) the page sends a
@@ -60,6 +61,9 @@ OSM_CLIENT_SECRET = os.environ.get("OSM_CLIENT_SECRET", "")
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "http://localhost:8090").rstrip("/")
 SESSION_SECRET = os.environ.get("SESSION_SECRET") or secrets.token_urlsafe(32)
 OSM_LOGIN = bool(OSM_CLIENT_ID)
+# Second OSM app, public (no secret), scope write_notes: the browser uses it to close
+# notes with osm-auth, like iD. The token stays in the browser. Empty = no close button.
+OSM_NOTES_CLIENT_ID = os.environ.get("OSM_NOTES_CLIENT_ID", "")
 # Who can see notes with personal data: OSM moderators/admins (role read at login),
 # plus the OSM names in MODERATORS (comma list). "*" = everyone (local dev only).
 MODERATORS = {x.strip().lower() for x in os.environ.get("MODERATORS", "").split(",") if x.strip()}
@@ -139,7 +143,9 @@ def is_moderator(request: Request) -> bool:
 
 @app.get("/api/me")
 def me(request: Request):
-    return {"osm_login": OSM_LOGIN, "osm_url": OSM_URL, "user": request.session.get("user"),
+    return {"osm_login": OSM_LOGIN, "osm_url": OSM_URL, "osm_api_url": OSM_API_URL,
+            "notes_client_id": OSM_NOTES_CLIENT_ID if OSM_LOGIN else "",
+            "user": request.session.get("user"),
             "moderator": is_moderator(request), "local": is_local(request)}
 
 
@@ -241,6 +247,12 @@ def index():
 def label_page():
     """Labeling page, for people who want to help."""
     return FileResponse("/app/static/index.html")
+
+
+@app.get("/land.html")
+def land():
+    """Where the OSM login popup of osm-auth lands (closing notes)."""
+    return FileResponse("/app/static/map/land.html")
 
 
 @app.get("/privacy")
@@ -561,6 +573,7 @@ def labels_csv(lang: str = "", user: str = "", since: str = "", category: str = 
 # - GET  /api/map/list?bbox=&sort=  notes for the sidebar + counts per category
 # - GET  /api/map/note/{id}         one note with full text and people's labels
 # - POST /api/map/feedback          confirm or fix the prediction (saved as a label)
+# - POST /api/map/close             record a note the person closed on OSM
 # - GET  /api/map/export.geojson    filtered notes as GeoJSON (for MapRoulette)
 # Filters (all optional): bbox=w,s,e,n cat=a,b theme=a,b conf=0.9 lang=es,en
 #   app=StreetComplete,none days=30 q=text
@@ -813,6 +826,64 @@ def map_feedback(body: FeedbackIn, request: Request):
                     theme = COALESCE(%s, theme), source = 'person'
                 WHERE note_id = %s""", (body.category, body.theme or None, body.note_id))
     return out
+
+
+# Why a person closed a note -> label saved for training (None = no label: the
+# note was right, or we don't know).
+CLOSE_REASONS = {"spam": "spam", "empty": "empty", "not_mappable": "not_mappable",
+                 "done": None, "other": None}
+
+
+class CloseIn(BaseModel):
+    note_id: int
+    reason: str
+
+
+@app.post("/api/map/close")
+def map_close(body: CloseIn, request: Request):
+    """The browser already closed the note on OSM with the person's token (osm-auth,
+    like iD); the token never comes here. We read the note on the public OSM API and
+    trust only what OSM says: it is closed, and by this OSM user. Then we save the
+    action, a label when the reason is a category, and take the note off the map."""
+    if not OSM_LOGIN:
+        raise HTTPException(404, "OSM login is not set up")
+    user = request.session.get("user")
+    if not user:
+        raise HTTPException(401, "Log in with your OSM account")
+    if body.reason not in CLOSE_REASONS:
+        raise HTTPException(400, f"Unknown reason: {body.reason}")
+    with httpx.Client(timeout=15) as http:
+        r = http.get(f"{OSM_API_URL}/api/0.6/notes/{body.note_id}.json")
+    if r.status_code != 200:
+        raise HTTPException(502, "Could not read the note on OSM")
+    props = r.json().get("properties") or {}
+    if props.get("status") != "closed":
+        raise HTTPException(409, "The note is still open on OSM")
+    last = (props.get("comments") or [{}])[-1]
+    mine = last.get("action") == "closed" and last.get("uid") == user["id"]
+    with pool.connection() as conn:
+        if mine:
+            conn.execute("""
+                INSERT INTO ml.note_actions (note_id, action, reason, comment, osm_uid, user_name,
+                    acted_at, category, category_conf, theme, model_version, source)
+                SELECT %(id)s, 'close', %(reason)s, %(comment)s, %(uid)s, %(user)s,
+                       %(at)s::timestamptz, m.category, m.category_conf, m.theme,
+                       m.model_version, m.source
+                FROM (SELECT 1) x LEFT JOIN (
+                  SELECT * FROM ml.map_notes WHERE note_id = %(id)s
+                  UNION ALL SELECT * FROM ml.private_notes WHERE note_id = %(id)s
+                  LIMIT 1) m ON true
+                ON CONFLICT (note_id, action, acted_at) DO NOTHING""",
+                {"id": body.note_id, "reason": body.reason, "comment": last.get("text") or "",
+                 "uid": user["id"], "user": user["name"],
+                 "at": last.get("date") or props.get("closed_at")})
+        # Closed on OSM (by anyone): off the map now, not at the next classifier run.
+        conn.execute("DELETE FROM ml.map_notes WHERE note_id = %s", (body.note_id,))
+        conn.execute("DELETE FROM ml.private_notes WHERE note_id = %s", (body.note_id,))
+    category = CLOSE_REASONS[body.reason]
+    if mine and category:
+        save_labels(user["name"], [(body.note_id, category, None, None, None)])
+    return {"closed": True, "by_me": mine, "closed_by": last.get("user")}
 
 
 MAP_PAGE_MAX = 5000

@@ -225,6 +225,30 @@ END
 $$;
 CREATE TABLE IF NOT EXISTS ml.private_notes (LIKE ml.map_notes INCLUDING ALL);
 
+-- Actions people take on OSM from the map (for now: close a note). The browser
+-- closes the note on OSM with the person's own token (it never reaches the server);
+-- the web then reads the note on the public OSM API and saves what OSM says here.
+-- category .. source: what the map showed at that moment, to compare the model
+-- with what people really did.
+CREATE TABLE IF NOT EXISTS ml.note_actions (
+ id            BIGSERIAL PRIMARY KEY,
+ note_id       INTEGER NOT NULL,
+ action        TEXT NOT NULL,          -- close
+ reason        TEXT,                   -- spam, empty, not_mappable, done, other
+ comment       TEXT,                   -- the comment on OSM
+ osm_uid       BIGINT,
+ user_name     TEXT NOT NULL,
+ acted_at      TIMESTAMPTZ NOT NULL,   -- date on OSM
+ category      TEXT,
+ category_conf REAL,
+ theme         TEXT,
+ model_version TEXT,
+ source        TEXT,
+ created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+ UNIQUE (note_id, action, acted_at)
+);
+CREATE INDEX IF NOT EXISTS note_actions_user ON ml.note_actions (user_name);
+
 -- Limited role for the labeling API: reads public, writes only ml.note_labels.
 DO $$
 BEGIN
@@ -244,6 +268,8 @@ GRANT INSERT, DELETE, UPDATE ON ml.map_notes, ml.private_notes TO labeler;
 GRANT SELECT, INSERT, UPDATE ON ml.note_labels TO labeler;
 GRANT USAGE ON SEQUENCE ml.note_labels_id_seq TO labeler;
 GRANT SELECT, INSERT, UPDATE ON ml.note_suggestions TO labeler;
+GRANT SELECT, INSERT ON ml.note_actions TO labeler;
+GRANT USAGE ON SEQUENCE ml.note_actions_id_seq TO labeler;
 
 GRANT USAGE ON SCHEMA public TO labeler;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO labeler;
