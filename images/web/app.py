@@ -61,9 +61,11 @@ OSM_CLIENT_SECRET = os.environ.get("OSM_CLIENT_SECRET", "")
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "http://localhost:8090").rstrip("/")
 SESSION_SECRET = os.environ.get("SESSION_SECRET") or secrets.token_urlsafe(32)
 OSM_LOGIN = bool(OSM_CLIENT_ID)
-# Second OSM app, public (no secret), scope write_notes: the browser uses it to close
-# notes with osm-auth, like iD. The token stays in the browser. Empty = no close button.
-OSM_NOTES_CLIENT_ID = os.environ.get("OSM_NOTES_CLIENT_ID", "")
+# One public OSM app (no secret, like iD) for both: the server login (PKCE, read_prefs)
+# and closing notes in the browser with osm-auth (write_notes, token stays in the
+# browser). A confidential app (with secret) can't be used from the browser, so then
+# there is no close button.
+OSM_CLOSE_NOTES = OSM_LOGIN and not OSM_CLIENT_SECRET
 # Who can see notes with personal data: OSM moderators/admins (role read at login),
 # plus the OSM names in MODERATORS (comma list). "*" = everyone (local dev only).
 MODERATORS = {x.strip().lower() for x in os.environ.get("MODERATORS", "").split(",") if x.strip()}
@@ -144,7 +146,7 @@ def is_moderator(request: Request) -> bool:
 @app.get("/api/me")
 def me(request: Request):
     return {"osm_login": OSM_LOGIN, "osm_url": OSM_URL, "osm_api_url": OSM_API_URL,
-            "notes_client_id": OSM_NOTES_CLIENT_ID if OSM_LOGIN else "",
+            "notes_client_id": OSM_CLIENT_ID if OSM_CLOSE_NOTES else "",
             "user": request.session.get("user"),
             "moderator": is_moderator(request), "local": is_local(request)}
 
@@ -181,8 +183,9 @@ def callback(request: Request, code: str = "", state: str = ""):
         tok = http.post(f"{OSM_URL}/oauth2/token", data={
             "grant_type": "authorization_code", "code": code,
             "redirect_uri": f"{PUBLIC_URL}/auth/callback",
-            "client_id": OSM_CLIENT_ID, "client_secret": OSM_CLIENT_SECRET,
-            "code_verifier": verifier})
+            "client_id": OSM_CLIENT_ID, "code_verifier": verifier,
+            # Public app: PKCE is the proof. Old confidential app: also the secret.
+            **({"client_secret": OSM_CLIENT_SECRET} if OSM_CLIENT_SECRET else {})})
         if tok.status_code != 200:
             raise HTTPException(502, "OSM rejected the login")
         details = http.get(f"{OSM_API_URL}/api/0.6/user/details.json", headers={
