@@ -761,12 +761,12 @@ async function loadStats() {
     stats = s; renderBoard();
     const c = s.claude;
     const pct = c.with_claude ? Math.round((100 * c.claude_right) / c.with_claude) : null;
-    const ppl = people(s);
+    const ppl = people(s).filter(([u]) => !AI_USERS.has(u.toLowerCase()));
     const top = ppl[0]?.[1] || 1;
     $("#stats").innerHTML = `<h2>Progress</h2>
       <p>${pct === null ? "No labels with an AI suggestion yet." : `The AI was right in <b>${pct}%</b> of ${c.with_claude.toLocaleString("en")} reviewed notes.`}</p>
       <table><tr><th>Person</th><th class="num">Labels</th><th></th></tr>
-      ${ppl.map(([u, n]) => `<tr><td>${esc(u)}${AI_USERS.has(u.toLowerCase()) ? " <small>(AI)</small>" : ""}</td><td class="num">${n.toLocaleString("en")}</td>
+      ${ppl.map(([u, n]) => `<tr><td>${esc(u)}</td><td class="num">${n.toLocaleString("en")}</td>
         <td class="bar-cell"><span style="width:${Math.max(2, (100 * n) / top)}%"></span></td></tr>`).join("") || "<tr><td colspan=3>No labels yet</td></tr>"}
       </table>
       <table><tr><th>Person</th><th>Language</th><th class="num">Labels</th><th>Last</th></tr>
