@@ -101,7 +101,7 @@ const PHOTO = /https?:\/\/(?:streetcomplete\.app|westnordost\.de)\/p\/\d+\.(?:jp
 
 /** Right panel with one note: prediction, text, links, and 👍/👎 feedback. */
 export default function NoteDetail({ id, t, names, options, me, onClose, onLoaded, onSaved,
-                                     editing, onEdit, changeset }) {
+                                     editing, onEdit, changeset, nav }) {
   const [note, setNote] = useState(null);
   const [error, setError] = useState("");
   const [fixing, setFixing] = useState(false);
@@ -168,6 +168,13 @@ export default function NoteDetail({ id, t, names, options, me, onClose, onLoade
       ) : (
         <button className="x" onClick={onClose} aria-label={t.close}>×</button>
       )}
+      {nav ? (
+        <div className="note-nav">
+          <button onClick={nav.prev} disabled={!nav.hasPrev} title={t.prevNote}>‹ {t.prev}</button>
+          <span>{nav.pos ? `${nav.pos.toLocaleString()} / ${nav.total.toLocaleString()}` : ""}</span>
+          <button onClick={nav.next} disabled={!nav.hasNext} title={t.nextNote}>{t.next} ›</button>
+        </div>
+      ) : null}
       <div className="detail-cat">
         <span className="dot" />
         <strong>{names.cat[note.category] || note.category}</strong>

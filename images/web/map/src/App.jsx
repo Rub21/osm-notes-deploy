@@ -32,6 +32,8 @@ export default function App() {
   const [editing, setEditing] = useState(false);   // iD over the map, note panel on the side
   const [changeset, setChangeset] = useState(null);   // last changeset saved in iD
   const abort = useRef(null);
+  const lastIdx = useRef(-1);     // place of the open note in the list (it may leave the list)
+  const pendingPick = useRef(null);   // "first" | "last": pick after the next page loads
 
   const setLang = (l) => {
     setLangState(l);
@@ -71,7 +73,36 @@ export default function App() {
 
   useEffect(() => { writeUrl(filters, sort, selectedId, view); }, [filters, sort, selectedId, view]);
 
+  // Previous / next note in the sidebar list (same filters and order), across pages.
+  const items = list?.items || [];
+  const idx = items.findIndex((r) => r.note_id === selectedId);
+  if (idx >= 0) lastIdx.current = idx;
+  const pages = Math.ceil((list?.total || 0) / PAGE_SIZE);
+  const stepTo = (dir) => {
+    // A closed or fixed note drops out of the list: the one now in its place is "next".
+    const at = idx >= 0 ? idx + dir : (dir > 0 ? lastIdx.current : lastIdx.current - 1);
+    if (at >= 0 && at < items.length) { select(items[at].note_id, items[at]); return; }
+    const p = page + (dir > 0 ? 1 : -1);
+    if (p < 0 || p >= pages) return;
+    pendingPick.current = dir > 0 ? "first" : "last";
+    goPage(p);
+  };
+  useEffect(() => {
+    if (!pendingPick.current || !items.length) return;
+    const row = pendingPick.current === "first" ? items[0] : items[items.length - 1];
+    pendingPick.current = null;
+    select(row.note_id, row);
+  }, [list]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pos = idx >= 0 ? page * PAGE_SIZE + idx + 1 : null;
+  const nav = list ? {
+    pos, total: list.total,
+    hasPrev: idx > 0 || page > 0 || (idx < 0 && lastIdx.current > 0),
+    hasNext: (idx >= 0 ? idx + 1 : lastIdx.current) < items.length || page + 1 < pages,
+    prev: () => stepTo(-1), next: () => stepTo(1),
+  } : null;
+
   const select = (id, row) => {
+    setChangeset(null);   // a changeset belongs to the note it was made for
     setSelectedId(id);
     setSelected(row ? { ...row } : { note_id: id });
   };
@@ -103,7 +134,7 @@ export default function App() {
     <NoteDetail key={selectedId} id={selectedId} t={t} names={names} me={me}
                 options={options || { categories: [], themes: [] }}
                 onClose={editing ? stopEdit : closeDetail} onLoaded={onLoaded}
-                onSaved={onSaved} editing={editing} onEdit={startEdit} changeset={changeset} />
+                onSaved={onSaved} editing={editing} onEdit={startEdit} changeset={changeset} nav={nav} />
   ) : null;
 
   return (
