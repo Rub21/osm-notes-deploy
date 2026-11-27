@@ -79,7 +79,7 @@ export default function Filters({ t, me, options, names, filters, setFilters, li
                 const on = draft.cat.includes(c.code);
                 const locked = c.code === PRIVATE;
                 return (
-                  <button type="button" key={c.code} className={`chip${on ? " on" : ""}${locked ? " locked" : ""}`}
+                  <button type="button" key={c.code} className={`fchip${on ? " on" : ""}${locked ? " locked" : ""}`}
                           style={{ "--cat": colorOf(c.code) }} onClick={() => toggleCat(c.code)}
                           title={locked ? `${t.modOnly}. ${names.desc[c.code]}` : names.desc[c.code]} aria-pressed={on}>
                     <span className="dot" />{names.cat[c.code]}

@@ -11,6 +11,7 @@ const CLOSE_TEXT = {
     empty: "Closing: the note has no information we can act on.",
     not_mappable: "Closing: this is not something we can map in OpenStreetMap.",
     other: "",
+    changeset: "Fixed in changeset #{id}",
   },
   es: {
     done: "Corregido en el mapa. ¡Gracias por la nota!",
@@ -18,6 +19,7 @@ const CLOSE_TEXT = {
     empty: "Cierro la nota: no tiene información para actuar.",
     not_mappable: "Cierro la nota: no es algo que se pueda mapear en OpenStreetMap.",
     other: "",
+    changeset: "Corregido en el changeset #{id}",
   },
 };
 
@@ -35,8 +37,7 @@ function CloseBox({ note, t, me, onClosed, changeset }) {
   // Saved in iD: open the form, "fixed" with the changeset link, ready to close.
   useEffect(() => {
     if (!changeset) return;
-    const link = `${me.osm_url || "https://www.openstreetmap.org"}/changeset/${changeset}`;
-    setOpen(true); setReason("done"); setText(`${words.done} ${link}`); setMsg("");
+    setOpen(true); setReason("done"); setText(words.changeset.replace("{id}", changeset)); setMsg("");
   }, [changeset]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pick = (r) => {

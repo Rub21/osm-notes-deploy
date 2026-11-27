@@ -63,7 +63,7 @@ export default function Stats() {
 }
 
 function Tile({ n, label }) {
-  return <div className="tile"><b>{n}</b><span>{label}</span></div>;
+  return <div className="stat-tile"><b>{n}</b><span>{label}</span></div>;
 }
 
 function NoteRef({ r, t, map }) {

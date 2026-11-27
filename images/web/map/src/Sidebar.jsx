@@ -24,7 +24,7 @@ export default function Sidebar(props) {
           {t.filters}{active ? <span className="badge">{active}</span> : null}
         </button>
       </div>
-      <div className="count">
+      <div className="list-count">
         <span><strong>{list ? fmt(list.total) : "…"}</strong> {t.inView}</span>
         <button className="ghost icon" onClick={onRefresh} title={t.refresh} aria-label={t.refresh}>⟳</button>
       </div>
