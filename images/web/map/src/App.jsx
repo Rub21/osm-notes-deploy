@@ -138,7 +138,8 @@ export default function App() {
     <NoteDetail key={selectedId} id={selectedId} t={t} names={names} me={me}
                 options={options || { categories: [], themes: [] }}
                 onClose={editing ? stopEdit : closeDetail} onLoaded={onLoaded}
-                onSaved={onSaved} editing={editing} onEdit={startEdit} changeset={changeset} nav={nav} />
+                onSaved={onSaved} editing={editing} onEdit={startEdit} changeset={changeset} nav={nav}
+                onZoom={(n) => setFlyTo({ lon: n.lon, lat: n.lat, zoom: 17 })} />
   ) : null;
 
   return (

@@ -101,7 +101,7 @@ const PHOTO = /https?:\/\/(?:streetcomplete\.app|westnordost\.de)\/p\/\d+\.(?:jp
 
 /** Right panel with one note: prediction, text, links, and 👍/👎 feedback. */
 export default function NoteDetail({ id, t, names, options, me, onClose, onLoaded, onSaved,
-                                     editing, onEdit, changeset, nav }) {
+                                     editing, onEdit, changeset, nav, onZoom }) {
   const [note, setNote] = useState(null);
   const [error, setError] = useState("");
   const [fixing, setFixing] = useState(false);
@@ -168,7 +168,8 @@ export default function NoteDetail({ id, t, names, options, me, onClose, onLoade
       ) : (
         <button className="x" onClick={onClose} aria-label={t.close}>×</button>
       )}
-      {nav ? (
+      {/* Only in edit mode: on the map the sidebar list is already there. */}
+      {editing && nav ? (
         <div className="note-nav">
           <button onClick={nav.prev} disabled={!nav.hasPrev} title={t.prevNote}>‹ {t.prev}</button>
           <span>{nav.pos ? `${nav.pos.toLocaleString()} / ${nav.total.toLocaleString()}` : ""}</span>
@@ -208,6 +209,9 @@ export default function NoteDetail({ id, t, names, options, me, onClose, onLoade
       </p>
       <p className="links">
         <a href={`${osm}/note/${note.note_id}`} target="_blank" rel="noreferrer">{t.openOsm} ↗</a>
+        {!editing ? (
+          <button className="link" onClick={() => onZoom(note)}>⌖ {t.zoomNote}</button>
+        ) : null}
         {canClose(me) && !editing ? (
           <button className="link" onClick={onEdit}>✎ {t.editId}</button>
         ) : null}
