@@ -7,3 +7,4 @@ images/classifier/__pycache__/*
 images/web/map/node_modules/
 images/web/map/dist/
 backups/
+images/web/map/public/id/

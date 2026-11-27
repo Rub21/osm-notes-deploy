@@ -199,6 +199,18 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--ink);
 .orig pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.5 var(--mono); background: var(--bg-2); border-radius: 6px; padding: 10px; }
 .links { display: flex; flex-wrap: wrap; gap: 14px; margin: 10px 0; font-size: 12px; font-weight: 500; }
 .links a { text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.links button.link { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer;
+                     text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+
+/* Edit mode: note panel in the left column, iD over the map */
+.app.editing .detail.docked { position: static; width: auto; max-height: none; height: 100%; z-index: auto;
+                              border: 0; border-right: 1px solid var(--line); border-radius: 0;
+                              box-shadow: none; animation: none; }
+.back { background: none; border: 0; padding: 0 0 10px; font-size: 12px; font-weight: 500; color: var(--ink-2); cursor: pointer; }
+.back:hover { color: var(--ink); }
+.editor { position: absolute; inset: 0; z-index: 10; background: var(--bg-2); }
+.editor .id-root { position: absolute; inset: 0; }
+.editor-error { margin: 40px auto; max-width: 420px; text-align: center; color: var(--ink-2); }
 .feedback { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 10px; }
 .feedback .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .feedback .row span { margin-right: 4px; color: var(--ink-2); }

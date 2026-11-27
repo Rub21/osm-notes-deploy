@@ -3,6 +3,7 @@ import { api, COLORS, PAGE_SIZE, readUrl, writeUrl } from "./api.js";
 import { startLang, TEXT } from "./i18n.js";
 import Filters from "./Filters.jsx";
 import Header from "./Header.jsx";
+import Editor, { editorView } from "./Editor.jsx";
 import MapView from "./MapView.jsx";
 import NoteDetail from "./NoteDetail.jsx";
 import PlaceSearch from "./PlaceSearch.jsx";
@@ -28,6 +29,8 @@ export default function App() {
   const [flyTo, setFlyTo] = useState(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [reload, setReload] = useState(0);   // bump to load the map points again
+  const [editing, setEditing] = useState(false);   // iD over the map, note panel on the side
+  const [changeset, setChangeset] = useState(null);   // last changeset saved in iD
   const abort = useRef(null);
 
   const setLang = (l) => {
@@ -81,26 +84,46 @@ export default function App() {
   // After 👍/👎 the note may change category: load the map and the list again.
   const onSaved = () => { setReload((r) => r + 1); loadList(page); };
 
+  const startEdit = () => { setChangeset(null); setEditing(true); };
+  const stopEdit = () => {
+    const v = editorView();   // keep the place where you were in iD
+    if (v) setFlyTo({ ...v, exact: true });
+    setEditing(false);
+    // The note may have been closed inside iD (its notes pane): record it like our
+    // button does. The server checks OSM first; still open -> 409, nothing saved.
+    if (selectedId) {
+      api.close({ note_id: selectedId, reason: "other" })
+        .then((r) => { if (r.closed) onSaved(); })
+        .catch(() => { /* still open, or not logged in */ });
+    }
+  };
+  const closeDetail = () => { setEditing(false); setSelectedId(null); setSelected(null); };
+
+  const detail = selectedId ? (
+    <NoteDetail key={selectedId} id={selectedId} t={t} names={names} me={me}
+                options={options || { categories: [], themes: [] }}
+                onClose={editing ? stopEdit : closeDetail} onLoaded={onLoaded}
+                onSaved={onSaved} editing={editing} onEdit={startEdit} changeset={changeset} />
+  ) : null;
+
   return (
     <div className="shell">
     <Header t={t} lang={lang} setLang={setLang} me={me} options={options} />
-    <div className="app">
-      <Sidebar t={t} lang={lang} names={names}
+    <div className={`app${editing ? " editing" : ""}`}>
+      {editing ? detail : <Sidebar t={t} lang={lang} names={names}
                filters={filters} sort={sort} setSort={setSort}
                open={filtersOpen} onFilters={() => setFiltersOpen(!filtersOpen)}
                list={list} loading={loading} page={page} setPage={goPage}
                onRefresh={() => loadList(page)} selectedId={selectedId} onSelect={select}
-               mode={mode} />
+               mode={mode} />}
       <main className="stage">
         <PlaceSearch t={t} lang={lang} onFly={setFlyTo} />
         <MapView filters={filters} reload={reload} selected={selected} onSelect={(id) => select(id)} onView={setView}
                  flyTo={flyTo} start={initial.view} t={t} onMode={setMode} onLoading={setMapLoading} />
         {mapLoading ? <div className="map-loading" role="status"><span className="spin" />{t.loading}</div> : null}
-        {selectedId ? (
-          <NoteDetail key={selectedId} id={selectedId} t={t} names={names} me={me}
-                      options={options || { categories: [], themes: [] }}
-                      onClose={() => { setSelectedId(null); setSelected(null); }} onLoaded={onLoaded}
-                      onSaved={onSaved} />
+        {editing ? null : detail}
+        {editing && selected?.lat != null ? (
+          <Editor me={me} lang={lang} note={selected} t={t} onChangeset={setChangeset} />
         ) : null}
         <Legend t={t} names={names} />
         {filtersOpen ? (

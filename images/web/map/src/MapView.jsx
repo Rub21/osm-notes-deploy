@@ -169,7 +169,8 @@ export default function MapView({ filters, reload, selected, onSelect, onView, f
   useEffect(() => {
     const m = map.current;
     if (!m || !flyTo) return;
-    if (flyTo.bbox) m.fitBounds(flyTo.bbox, { padding: 40, maxZoom: 15, duration: 900 });
+    if (flyTo.exact) m.jumpTo({ center: [flyTo.lon, flyTo.lat], zoom: flyTo.zoom });
+    else if (flyTo.bbox) m.fitBounds(flyTo.bbox, { padding: 40, maxZoom: 15, duration: 900 });
     else m.flyTo({ center: [flyTo.lon, flyTo.lat], zoom: Math.max(m.getZoom(), flyTo.zoom || 15) });
   }, [flyTo]);
 

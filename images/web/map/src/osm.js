@@ -6,6 +6,11 @@ import { osmAuth } from "osm-auth";
 let auth = null;
 let checkedUid = null;   // OSM user id the token belongs to, checked once
 
+// Same scope as iD (Editor.jsx): both share the token stored in this browser, so it
+// must also let iD save edits. Change SCOPE -> old tokens are dropped (ensureScope).
+const SCOPE = "read_prefs write_prefs write_api read_gpx write_notes";
+const SCOPE_KEY = "osm_token_scope";
+
 export const canClose = (me) => Boolean(me?.notes_client_id && me?.user);
 
 function getAuth(me) {
@@ -14,11 +19,25 @@ function getAuth(me) {
       client_id: me.notes_client_id,
       url: me.osm_url,
       apiUrl: me.osm_api_url,
-      scope: "read_prefs write_notes",
+      scope: SCOPE,
       redirect_uri: `${location.origin}/land.html`,
     });
   }
   return auth;
+}
+
+/** Drop a token made with another scope (e.g. the first version: only write_notes),
+ *  so the next action asks OSM again with the full scope. Call before iD starts. */
+export function ensureScope(me) {
+  if (!me?.notes_client_id) return;
+  const a = getAuth(me);
+  try {
+    if (localStorage.getItem(SCOPE_KEY) !== SCOPE) {
+      a.logout();
+      checkedUid = null;
+      localStorage.setItem(SCOPE_KEY, SCOPE);
+    }
+  } catch { /* private mode: nothing stored anyway */ }
 }
 
 /** Forget the OSM token in this browser (on logout). */
@@ -33,6 +52,7 @@ export function osmLogout(me) {
  * (someone closed it before), rejects with an Error (err.code = popup | other_user | expired).
  */
 export function closeNote(me, noteId, text, switchUser = false) {
+  ensureScope(me);
   const a = getAuth(me);
   if (switchUser) { a.logout(); checkedUid = null; }
   return new Promise((resolve, reject) => {

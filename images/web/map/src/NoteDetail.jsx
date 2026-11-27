@@ -22,7 +22,7 @@ const CLOSE_TEXT = {
 };
 
 /** Close the note on OSM with a reason and a public comment. */
-function CloseBox({ note, t, me, onClosed }) {
+function CloseBox({ note, t, me, onClosed, changeset }) {
   const words = CLOSE_TEXT[note.lang === "es" ? "es" : "en"];
   const first = REASONS.includes(note.category) ? note.category : "done";
   const [open, setOpen] = useState(false);
@@ -31,6 +31,13 @@ function CloseBox({ note, t, me, onClosed }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [switchUser, setSwitchUser] = useState(false);
+
+  // Saved in iD: open the form, "fixed" with the changeset link, ready to close.
+  useEffect(() => {
+    if (!changeset) return;
+    const link = `${me.osm_url || "https://www.openstreetmap.org"}/changeset/${changeset}`;
+    setOpen(true); setReason("done"); setText(`${words.done} ${link}`); setMsg("");
+  }, [changeset]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pick = (r) => {
     // Keep the person's own text; only swap our default ones.
@@ -92,7 +99,8 @@ const pct = (x) => (x == null ? "" : `${Math.round(x * 100)}%`);
 const PHOTO = /https?:\/\/(?:streetcomplete\.app|westnordost\.de)\/p\/\d+\.(?:jpe?g|png|webp)/gi;
 
 /** Right panel with one note: prediction, text, links, and 👍/👎 feedback. */
-export default function NoteDetail({ id, t, names, options, me, onClose, onLoaded, onSaved }) {
+export default function NoteDetail({ id, t, names, options, me, onClose, onLoaded, onSaved,
+                                     editing, onEdit, changeset }) {
   const [note, setNote] = useState(null);
   const [error, setError] = useState("");
   const [fixing, setFixing] = useState(false);
@@ -134,7 +142,7 @@ export default function NoteDetail({ id, t, names, options, me, onClose, onLoade
 
   if (error) {
     return (
-      <aside className="detail">
+      <aside className={`detail${editing ? " docked" : ""}`}>
         <button className="x" onClick={onClose} aria-label={t.close}>×</button>
         <p className="muted">#{id} · {error}</p>
       </aside>
@@ -142,7 +150,7 @@ export default function NoteDetail({ id, t, names, options, me, onClose, onLoade
   }
   if (!note) {
     return (
-      <aside className="detail">
+      <aside className={`detail${editing ? " docked" : ""}`}>
         <button className="x" onClick={onClose} aria-label={t.close}>×</button>
         <p className="muted">{t.loading}</p>
       </aside>
@@ -153,8 +161,12 @@ export default function NoteDetail({ id, t, names, options, me, onClose, onLoade
   const shown = note.user_text || note.text;
   const photos = [...new Set((note.full_text || note.text || "").match(PHOTO) || [])].slice(0, 6);
   return (
-    <aside className="detail" style={{ "--cat": colorOf(note.category) }}>
-      <button className="x" onClick={onClose} aria-label={t.close}>×</button>
+    <aside className={`detail${editing ? " docked" : ""}`} style={{ "--cat": colorOf(note.category) }}>
+      {editing ? (
+        <button className="back" onClick={onClose}>← {t.backToMap}</button>
+      ) : (
+        <button className="x" onClick={onClose} aria-label={t.close}>×</button>
+      )}
       <div className="detail-cat">
         <span className="dot" />
         <strong>{names.cat[note.category] || note.category}</strong>
@@ -188,7 +200,13 @@ export default function NoteDetail({ id, t, names, options, me, onClose, onLoade
       </p>
       <p className="links">
         <a href={`${osm}/note/${note.note_id}`} target="_blank" rel="noreferrer">{t.openOsm} ↗</a>
-        <a href={`${osm}/edit?editor=id#map=19/${note.lat}/${note.lon}`} target="_blank" rel="noreferrer">{t.editId} ↗</a>
+        {canClose(me) && !editing ? (
+          <button className="link" onClick={onEdit}>✎ {t.editId}</button>
+        ) : null}
+        {!editing ? (
+          <a href={`${osm}/edit?editor=id#map=19/${note.lat}/${note.lon}`} target="_blank" rel="noreferrer"
+             title={t.editNewTab}>{canClose(me) ? t.newTab : t.editId} ↗</a>
+        ) : null}
       </p>
 
       <div className="feedback">
@@ -229,7 +247,7 @@ export default function NoteDetail({ id, t, names, options, me, onClose, onLoade
         )}
         {status ? <p className="status">{status}</p> : null}
         {canClose(me) && !closed ? (
-          <CloseBox note={note} t={t} me={me} onClosed={(msg) => {
+          <CloseBox note={note} t={t} me={me} changeset={changeset} onClosed={(msg) => {
             setClosed(true); setStatus(msg);
             onSaved?.();
           }} />

@@ -18,7 +18,8 @@
 - GET  /, /api/map/*              map viewer of the model's predictions (see below)
 - GET  /label                      labeling page
 - GET  /auth/login, /auth/callback, /auth/logout   OSM OAuth 2.0 login
-- GET  /land.html                 popup landing of osm-auth (close notes, see /api/map/close)
+- GET  /land.html                 popup landing of osm-auth (close notes, iD edit mode)
+- GET  /id/*                      the iD editor files (edit mode)
 
 Login: when OSM_CLIENT_ID is set, writes need an OSM login and the label
 is saved with the OSM username. Without it (local dev) the page sends a
@@ -660,6 +661,8 @@ def map_page(request: Request):
 
 app.mount("/assets", StaticFiles(directory="/app/static/map/assets", check_dir=False),
           name="map-assets")
+# The iD editor for the edit mode (copied from npm @openstreetmap/id, see map/copy-id.mjs).
+app.mount("/id", StaticFiles(directory="/app/static/map/id", check_dir=False), name="id-editor")
 
 
 @app.get("/api/map/options")
