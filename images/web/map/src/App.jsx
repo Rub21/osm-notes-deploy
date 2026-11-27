@@ -80,7 +80,10 @@ export default function App() {
   const pages = Math.ceil((list?.total || 0) / PAGE_SIZE);
   const stepTo = (dir) => {
     // A closed or fixed note drops out of the list: the one now in its place is "next".
-    const at = idx >= 0 ? idx + dir : (dir > 0 ? lastIdx.current : lastIdx.current - 1);
+    // A note opened from the map that is not on this page: "next" = first of the list.
+    const at = idx >= 0 ? idx + dir
+      : lastIdx.current < 0 ? (dir > 0 ? 0 : -1)
+      : (dir > 0 ? lastIdx.current : lastIdx.current - 1);
     if (at >= 0 && at < items.length) { select(items[at].note_id, items[at]); return; }
     const p = page + (dir > 0 ? 1 : -1);
     if (p < 0 || p >= pages) return;
@@ -97,12 +100,13 @@ export default function App() {
   const nav = list ? {
     pos, total: list.total,
     hasPrev: idx > 0 || page > 0 || (idx < 0 && lastIdx.current > 0),
-    hasNext: (idx >= 0 ? idx + 1 : lastIdx.current) < items.length || page + 1 < pages,
+    hasNext: (idx >= 0 ? idx + 1 : Math.max(lastIdx.current, 0)) < items.length || page + 1 < pages,
     prev: () => stepTo(-1), next: () => stepTo(1),
   } : null;
 
   const select = (id, row) => {
     setChangeset(null);   // a changeset belongs to the note it was made for
+    lastIdx.current = (list?.items || []).findIndex((r) => r.note_id === id);   // -1: not in the list
     setSelectedId(id);
     setSelected(row ? { ...row } : { note_id: id });
   };
